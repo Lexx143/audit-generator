@@ -10,16 +10,16 @@ function App() {
     conclusions: ''
   });
   const [auditData, setAuditData] = useState(null);
-  
-  const vulnSuggestions = [
-    "Отсутствует резервное копирование (бэкапы)",
-    "Нет антивирусной защиты",
-    "Использование пиратского ПО (Windows, Office)",
-    "Открыты порты RDP наружу",
-    "Сетевое оборудование без паролей (admin/admin)",
-    "Серверная в плачевном состоянии (пыль, перегрев)",
-    "Старое железо, жесткие диски (HDD) сыпятся"
-  ];
+  const [revisionText, setRevisionText] = useState("");
+  const [revising, setRevising] = useState(false);
+  const [hints, setHints] = useState([]);
+
+  useEffect(() => {
+    fetch('http://localhost:8000/api/hints')
+      .then(res => res.json())
+      .then(data => setHints(data.hints || []))
+      .catch(err => console.error("Failed to load hints:", err));
+  }, []);
 
   const handleParse = async () => {
     setLoading(true);
@@ -29,6 +29,12 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, audit_type: auditType })
       });
+      if (!res.ok) {
+        const errorText = await res.text();
+        alert("Ошибка от сервера: " + errorText);
+        setLoading(false);
+        return;
+      }
       const data = await res.json();
       setAuditData(data);
       setStep(2);
@@ -72,6 +78,34 @@ function App() {
     }
   };
 
+  const handleRevise = async () => {
+    if (!revisionText.trim()) return;
+    setRevising(true);
+    try {
+      const res = await fetch('http://localhost:8000/api/revise', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          current_data: auditData, 
+          revision_prompt: revisionText,
+          audit_type: auditType
+        })
+      });
+      if (!res.ok) {
+        const errorText = await res.text();
+        alert("Ошибка от сервера: " + errorText);
+        setRevising(false);
+        return;
+      }
+      const data = await res.json();
+      setAuditData(data);
+      setRevisionText("");
+    } catch (err) {
+      alert("Ошибка при применении правок: " + err);
+    }
+    setRevising(false);
+  };
+
   const handleGeneratePptx = async () => {
     setLoading(true);
     try {
@@ -80,12 +114,27 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: auditData })
       });
-      const data = await res.json();
-      if (data.url) {
-        window.open(data.url, '_blank');
+      
+      if (!res.ok) {
+        const err = await res.text();
+        alert("Ошибка при генерации PPTX: " + err);
+        setLoading(false);
+        return;
       }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Отчет_${auditData.client_name.replace(/ /g, '_')}.pptx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      
+      alert("Отчет успешно скачан и сохранен в базу знаний ИИ!");
     } catch (err) {
-      alert("Ошибка создания PPTX: " + err);
+      alert("Ошибка сети при скачивании: " + err);
     }
     setLoading(false);
   };
@@ -117,20 +166,29 @@ function App() {
           </div>
 
           <div className="input-group">
-            <label>Выявленные уязвимости</label>
+            <label>Выявленные уязвимости и проблемы</label>
             <textarea 
               value={formData.vulnerabilities}
               onChange={e => setFormData({...formData, vulnerabilities: e.target.value})}
-              placeholder="Опишите все проблемы своими словами..."
-              style={{minHeight: '200px'}}
+              placeholder="Что нашли на объекте? (например: открыт RDP, пиратская винда, бэкапов нет)"
             />
-            <div style={{marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)'}}>
-              Подсказки: {vulnSuggestions.map((s, i) => (
-                <span key={i} style={{cursor:'pointer', borderBottom:'1px dashed', marginRight:'10px'}}
-                      onClick={() => setFormData(f => ({...f, vulnerabilities: f.vulnerabilities + s + '\n'}))}>
-                  {s}
-                </span>
-              ))}
+            <div style={{marginTop: '0.5rem'}}>
+              <select 
+                className="input-field" 
+                style={{padding: '0.5rem', backgroundColor: 'var(--bg-card)'}}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setFormData({
+                      ...formData, 
+                      vulnerabilities: formData.vulnerabilities + (formData.vulnerabilities ? ', ' : '') + e.target.value
+                    });
+                    e.target.value = "";
+                  }
+                }}
+              >
+                <option value="">-- Выбрать из частых уязвимостей --</option>
+                {hints.map((h, i) => <option key={i} value={h}>{h}</option>)}
+              </select>
             </div>
           </div>
 
@@ -228,8 +286,26 @@ function App() {
             }}/>
           ))}
 
+          <div className="glass-panel" style={{marginTop: '2rem', background: 'rgba(0,0,0,0.2)', border: '1px dashed var(--primary)'}}>
+            <h3>Умные правки ИИ</h3>
+            <p style={{fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '1rem'}}>
+              Напишите, что нужно изменить в макете (например: "Удали кейс про антивирусы и добавь кейс про плохой интернет", "Сделай описания рисков более строгими").
+            </p>
+            <div className="input-group">
+              <textarea 
+                value={revisionText}
+                onChange={e => setRevisionText(e.target.value)}
+                placeholder="Ваши комментарии и пожелания для ИИ..."
+                style={{minHeight: '100px'}}
+              />
+            </div>
+            <button className="btn" onClick={handleRevise} disabled={revising} style={{fontSize: '1rem'}}>
+              {revising ? <div className="loader"></div> : "Применить правки"}
+            </button>
+          </div>
+
           <div style={{marginTop: '3rem', textAlign: 'center'}}>
-            <button className="btn" onClick={handleGeneratePptx} disabled={loading} style={{fontSize: '1.25rem', padding: '1rem 3rem'}}>
+            <button className="btn" onClick={handleGeneratePptx} disabled={loading || revising} style={{fontSize: '1.25rem', padding: '1rem 3rem'}}>
               {loading ? <div className="loader"></div> : "💾 Скачать PPTX Отчет"}
             </button>
           </div>

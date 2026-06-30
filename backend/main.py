@@ -2,14 +2,18 @@ import os
 import json
 import base64
 import time
+import io
+import uuid
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+import chromadb
 
 from pptx import Presentation
 from pptx.util import Inches
@@ -17,6 +21,24 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 import copy
 
 load_dotenv()
+
+# Initialize ChromaDB
+chroma_client = chromadb.PersistentClient(path="db")
+cases_collection = chroma_client.get_or_create_collection(name="audit_cases")
+conclusions_collection = chroma_client.get_or_create_collection(name="audit_conclusions")
+
+HINTS_FILE = "db/hints.json"
+
+def get_hints():
+    if os.path.exists(HINTS_FILE):
+        with open(HINTS_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+def save_hints(hints: list):
+    if not os.path.exists("db"): os.makedirs("db")
+    with open(HINTS_FILE, "w") as f:
+        json.dump(hints, f, ensure_ascii=False, indent=2)
 
 app = FastAPI()
 
@@ -64,6 +86,11 @@ class ParseRequest(BaseModel):
     conclusions: str
     audit_type: str 
 
+class ReviseRequest(BaseModel):
+    current_data: AuditData
+    revision_prompt: str
+    audit_type: str
+
 class GenerateImageRequest(BaseModel):
     prompt: str
 
@@ -71,10 +98,26 @@ class GeneratePptxRequest(BaseModel):
     data: AuditData
 
 # ---- API Endpoints ----
+@app.get("/api/hints")
+async def get_hints_api():
+    return {"hints": get_hints()}
+
 @app.post("/api/parse")
 async def parse_audit(req: ParseRequest):
     if not client:
         raise HTTPException(status_code=500, detail="Vertex AI client not initialized")
+        
+    try:
+        similar_cases = cases_collection.query(
+            query_texts=[req.vulnerabilities],
+            n_results=5
+        )
+        rag_context = "\nПримеры лучших формулировок из прошлых аудитов:\n"
+        if similar_cases['documents'] and similar_cases['documents'][0]:
+            for doc in similar_cases['documents'][0]:
+                rag_context += f"- {doc}\n"
+    except Exception:
+        rag_context = ""
     
     prompt = f"""
     Проанализируй предоставленные данные и сформируй структуру для ИТ-аудита.
@@ -89,11 +132,61 @@ async def parse_audit(req: ParseRequest):
     ВЫВОДЫ/ЗАКЛЮЧЕНИЕ:
     {req.conclusions}
     
+    {rag_context}
+    
     ИНСТРУКЦИИ ДЛЯ СТРУКТУРЫ (AuditData):
     1. client_name: Короткое название клиента.
     2. review: Обобщающий текст-обзор на 2-3 предложения.
     3. cases: Выдели ровно 5 основных уязвимостей. Для каждой заполни title, vulnerability, risk, priority ("ПЕРВЫЙ ПРИОРИТЕТ", "ВТОРОЙ ПРИОРИТЕТ" или "ТРЕТИЙ ПРИОРИТЕТ"), category ("I. Серверная инфраструктура" или "II. Сеть и ИТ-поддержка"). Также придумай image_prompt - промпт на английском (до 15 слов) для генерации ИТ-векторной картинки без текста.
     4. conclusions: Массив из 3-5 строк для итогового слайда с предложениями.
+    """
+    
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-pro',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=AuditData,
+                temperature=0.2,
+            ),
+        )
+        data = json.loads(response.text)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/revise")
+async def revise_audit(req: ReviseRequest):
+    if not client:
+        raise HTTPException(status_code=500, detail="Vertex AI client not initialized")
+        
+    try:
+        similar_cases = cases_collection.query(
+            query_texts=[req.revision_prompt],
+            n_results=5
+        )
+        rag_context = "\nПримеры лучших формулировок из прошлых аудитов:\n"
+        if similar_cases['documents'] and similar_cases['documents'][0]:
+            for doc in similar_cases['documents'][0]:
+                rag_context += f"- {doc}\n"
+    except Exception:
+        rag_context = ""
+
+    prompt = f"""
+    Текущая структура аудита:
+    {req.current_data.model_dump_json(indent=2)}
+    
+    Комментарии и правки от пользователя:
+    {req.revision_prompt}
+    
+    Тип аудита: {req.audit_type}. Если 'full', обязательно сохраняй/добавляй рекомендации. Если 'express', оставляй поле recommendation пустым.
+    
+    {rag_context}
+    
+    Внимательно изучи комментарии пользователя и примени эти изменения к текущей структуре. 
+    Верни обновленный JSON (AuditData). 
+    ВАЖНО: Должно остаться ровно 5 кейсов. Сохрани поля image_b64 и image_prompt без изменений, если пользователь явно не просил поменять картинку или тему кейса.
     """
     
     try:
@@ -185,8 +278,6 @@ def get_priority(slide):
 async def generate_pptx(req: GeneratePptxRequest):
     data = req.data
     template_path = os.path.join("assets", "template.pptx")
-    output_filename = f"report_{int(time.time())}.pptx"
-    output_path = os.path.join("static", output_filename)
     
     if not os.path.exists(template_path):
         raise HTTPException(status_code=500, detail="Template not found")
@@ -287,10 +378,41 @@ async def generate_pptx(req: GeneratePptxRequest):
         prs.part.drop_rel(rId)
         del prs.slides._sldIdLst[i]
         
-    prs.save(output_path)
+    output_io = io.BytesIO()
+    prs.save(output_io)
+    output_io.seek(0)
     
+    try:
+        current_hints = get_hints()
+        new_hints_added = False
+        
+        for case in data.cases:
+            case_text = f"Тема: {case.title}. Категория: {case.category}. Риск: {case.risk}. Рекомендация: {case.recommendation}"
+            cases_collection.upsert(
+                documents=[case_text],
+                ids=[str(uuid.uuid4())]
+            )
+            if case.title not in current_hints:
+                current_hints.append(case.title)
+                new_hints_added = True
+        
+        for conc in data.conclusions:
+            conclusions_collection.upsert(
+                documents=[conc],
+                ids=[str(uuid.uuid4())]
+            )
+            
+        if new_hints_added:
+            save_hints(current_hints)
+    except Exception as e:
+        print(f"Failed to save to RAG memory: {e}")
+        
     for _, img_path in temp_images:
         if os.path.exists(img_path):
             os.remove(img_path)
             
-    return {"url": f"http://localhost:8000/static/{output_filename}"}
+    return StreamingResponse(
+        output_io,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f"attachment; filename=Отчет_{data.client_name.replace(' ', '_')}.pptx"}
+    )
