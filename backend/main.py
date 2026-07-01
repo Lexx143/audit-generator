@@ -10,8 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
-from google import genai
-from google.genai import types
+from openai import OpenAI
 from dotenv import load_dotenv
 import chromadb
 
@@ -24,8 +23,14 @@ load_dotenv()
 
 # Initialize ChromaDB
 chroma_client = chromadb.PersistentClient(path="db")
-cases_collection = chroma_client.get_or_create_collection(name="audit_cases")
-conclusions_collection = chroma_client.get_or_create_collection(name="audit_conclusions")
+from chromadb.utils import embedding_functions
+
+openai_ef = embedding_functions.OpenAIEmbeddingFunction(
+    api_key=os.environ.get("OPENAI_API_KEY"),
+    model_name="text-embedding-3-small"
+)
+cases_collection = chroma_client.get_or_create_collection(name="audit_cases", embedding_function=openai_ef)
+conclusions_collection = chroma_client.get_or_create_collection(name="audit_conclusions", embedding_function=openai_ef)
 
 HINTS_FILE = "db/hints.json"
 
@@ -54,13 +59,9 @@ os.makedirs("static/images", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 try:
-    client = genai.Client(
-        vertexai=True, 
-        project=os.environ.get("PROJECT_ID", "gemini-bot-460610"), 
-        location=os.environ.get("LOCATION", "us-central1")
-    )
+    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 except Exception as e:
-    print(f"Warning: Failed to initialize Vertex AI client: {e}")
+    print(f"Warning: Failed to initialize OpenAI client: {e}")
     client = None
 
 # ---- Pydantic Models ----
@@ -71,14 +72,14 @@ class Case(BaseModel):
     recommendation: Optional[str]
     priority: str 
     category: str 
+    image_prompt: str
     image_b64: Optional[str] = None
-    image_prompt: Optional[str] = None
 
 class AuditData(BaseModel):
     client_name: str
     review: str 
-    cases: List[Case] 
-    conclusions: List[str] 
+    cases: list[Case] 
+    conclusions: list[str] 
 
 class ParseRequest(BaseModel):
     general_data: str
@@ -105,7 +106,7 @@ async def get_hints_api():
 @app.post("/api/parse")
 async def parse_audit(req: ParseRequest):
     if not client:
-        raise HTTPException(status_code=500, detail="Vertex AI client not initialized")
+        raise HTTPException(status_code=500, detail="OpenAI client not initialized")
         
     try:
         similar_cases = cases_collection.query(
@@ -142,24 +143,23 @@ async def parse_audit(req: ParseRequest):
     """
     
     try:
-        response = client.models.generate_content(
-            model='gemini-2.5-pro',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=AuditData,
-                temperature=0.2,
-            ),
+        response = client.beta.chat.completions.parse(
+            model='gpt-5.5',
+            messages=[
+                {"role": "system", "content": "Ты эксперт по ИТ-аудитам."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format=AuditData,
         )
-        data = json.loads(response.text)
-        return data
+        data_obj = response.choices[0].message.parsed
+        return json.loads(data_obj.model_dump_json())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/revise")
 async def revise_audit(req: ReviseRequest):
     if not client:
-        raise HTTPException(status_code=500, detail="Vertex AI client not initialized")
+        raise HTTPException(status_code=500, detail="OpenAI client not initialized")
         
     try:
         similar_cases = cases_collection.query(
@@ -190,37 +190,36 @@ async def revise_audit(req: ReviseRequest):
     """
     
     try:
-        response = client.models.generate_content(
-            model='gemini-2.5-pro',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=AuditData,
-                temperature=0.2,
-            ),
+        response = client.beta.chat.completions.parse(
+            model='gpt-5.5',
+            messages=[
+                {"role": "system", "content": "Ты эксперт по ИТ-аудитам. Твоя цель - обновить JSON по просьбе пользователя."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format=AuditData,
+            temperature=0.2,
         )
-        data = json.loads(response.text)
-        return data
+        data_obj = response.choices[0].message.parsed
+        return json.loads(data_obj.model_dump_json())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/generate_image")
 async def generate_image(req: GenerateImageRequest):
     if not client:
-        raise HTTPException(status_code=500, detail="Vertex AI client not initialized")
+        raise HTTPException(status_code=500, detail="OpenAI client not initialized")
         
     full_prompt = f"Minimalist abstract 3D icon or simple vector of {req.prompt}. Pure white background, absolutely no text, no letters, clean corporate IT infographic style, geometric."
     try:
-        response = client.models.generate_images(
-            model='imagen-3.0-generate-001',
+        response = client.images.generate(
+            model="gpt-image-2",
             prompt=full_prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio="1:1"
-            )
+            size="1024x1024",
+            quality="standard",
+            n=1,
+            response_format="b64_json"
         )
-        img_bytes = response.generated_images[0].image.image_bytes
-        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+        img_b64 = response.data[0].b64_json
         return {"image_b64": f"data:image/jpeg;base64,{img_b64}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
