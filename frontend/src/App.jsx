@@ -526,14 +526,14 @@ function App() {
           </div>
 
           <div style={{marginTop: '3rem', textAlign: 'center'}}>
-            <div style={{marginBottom: '1rem'}}>
+            <div className="action-bar" style={{marginBottom: '1rem'}}>
               <span className="style-select-wrap">
                 <label style={{fontSize: '0.9rem'}}>Стиль картинок:</label>
                 <select value={imageStyle} onChange={e => setImageStyle(e.target.value)}>
                   {IMAGE_STYLES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                 </select>
               </span>
-              <button className="btn" onClick={handleGenerateAllImages} disabled={loading || revising || !!batchProgress} style={{fontSize: '1rem', padding: '1rem 2rem'}}>
+              <button className="btn btn-action" onClick={handleGenerateAllImages} disabled={loading || revising || !!batchProgress}>
                 {batchProgress ? `Генерация ${batchProgress.done}/${batchProgress.total}...` : "Сгенерировать все картинки"}
               </button>
             </div>
@@ -546,7 +546,7 @@ function App() {
               </div>
             )}
             <div style={{marginTop: '1rem'}}>
-              <button className="btn" onClick={handleGeneratePptx} disabled={loading || revising} style={{fontSize: '1.25rem', padding: '1rem 3rem'}}>
+              <button className="btn btn-download" onClick={handleGeneratePptx} disabled={loading || revising}>
                 {loading ? <div className="loader"></div> : "💾 Скачать PPTX Отчет"}
               </button>
               <label className="memory-checkbox">

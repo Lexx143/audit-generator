@@ -121,3 +121,37 @@
   accent-color: var(--primary);
   cursor: pointer;
 }
+
+/* ---------- Мобильные экраны ---------- */
+@media (max-width: 640px) {
+  /* Тосты не должны перекрывать пол-экрана */
+  .toast-container {
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+  }
+
+  .toast {
+    max-width: none;
+    font-size: 0.9rem;
+  }
+
+  .memory-checkbox {
+    font-size: 0.8rem;
+  }
+
+  .progress-bar {
+    width: 100%;
+    max-width: 240px;
+  }
+
+  .style-select-wrap {
+    width: 100%;
+    justify-content: space-between;
+    margin-right: 0;
+  }
+
+  .revise-case-box {
+    flex-wrap: wrap;
+  }
+}
