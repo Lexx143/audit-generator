@@ -385,7 +385,7 @@ function App() {
           <div className="flex-between" style={{marginBottom: '2rem'}}>
             <h2>Предпросмотр: {auditData.client_name}</h2>
             <div style={{display: 'flex', gap: '0.5rem'}}>
-              <button className="btn" onClick={() => setStep(1)} style={{background: 'transparent', border: '1px solid var(--border-glass)'}}>Назад</button>
+              <button className="btn" onClick={() => setStep(1)} style={{background: 'transparent', border: '1px solid var(--border-glass)', color: 'var(--text-main)'}}>Назад</button>
               <button className="btn-small" onClick={resetAll}>Начать заново</button>
             </div>
           </div>
