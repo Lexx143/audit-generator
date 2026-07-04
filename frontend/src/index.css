@@ -255,6 +255,10 @@ textarea:focus, input:focus, select:focus {
 
 /* ---------- Мобильные экраны ---------- */
 @media (max-width: 640px) {
+  body {
+    overflow-x: hidden;
+  }
+
   .container {
     padding: 1rem 0.75rem;
   }
@@ -281,6 +285,17 @@ textarea:focus, input:focus, select:focus {
   .switch-wrap {
     width: 100%;
     justify-content: space-between;
+  }
+
+  /* Селект не должен распирать страницу шириной самого длинного пункта */
+  .switch-wrap label {
+    white-space: nowrap;
+  }
+
+  .switch-wrap select {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto !important; /* перебивает inline width:auto и даёт сжиматься */
   }
 
   .btn {
