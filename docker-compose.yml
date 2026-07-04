@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: audit-backend
+    restart: always
+    volumes:
+      - ./backend/db:/app/db
+      - ./backend/.env:/app/.env
+    # No need to expose port to host, nginx will proxy to it internally
+    networks:
+      - audit-net
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: audit-frontend
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - audit-net
+
+networks:
+  audit-net:
+    driver: bridge
