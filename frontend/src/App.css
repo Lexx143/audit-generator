@@ -72,13 +72,13 @@
   font-size: 0.85rem;
   border-radius: 50px;
   border: 1px solid var(--border-glass);
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
+  background: var(--bg-glass);
+  color: var(--text-main);
   cursor: pointer;
   transition: background 0.2s;
 }
 
-.btn-small:hover { background: rgba(255, 255, 255, 0.15); }
+.btn-small:hover { background: var(--border-glass); }
 .btn-small:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .revise-case-box {
