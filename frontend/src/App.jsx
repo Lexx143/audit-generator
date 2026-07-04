@@ -40,6 +40,16 @@ function App() {
   const [toasts, setToasts] = useState([]);
   const [reviseCaseOpen, setReviseCaseOpen] = useState({}); // {idx: comment}
   const [saveToMemory, setSaveToMemory] = useState(false);
+  const [theme, setTheme] = useState(localStorage.getItem('audit-theme') || 'dark');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('audit-theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
 
   const addToast = useCallback((message, type = 'info') => {
     const id = Date.now() + Math.random();
@@ -271,7 +281,12 @@ function App() {
 
   return (
     <div className="container">
-      <h1 className="title">Audit Generator AI</h1>
+      <div className="flex-between" style={{marginBottom: '2rem', alignItems: 'center'}}>
+        <h1 className="title" style={{margin: 0}}>Audit Generator AI</h1>
+        <button className="btn" onClick={toggleTheme} style={{padding: '0.5rem 1rem', fontSize: '1.2rem', borderRadius: '50px'}}>
+          {theme === 'dark' ? '☀️' : '🌙'}
+        </button>
+      </div>
 
       {step === 1 && (
         <div className="glass-panel">
