@@ -72,6 +72,33 @@ def replace_table_cell(table, r, c, new_text):
     perfect_replace(cell, new_text)
 
 
+def replace_labeled_cell(table, r, c, label, body):
+    """Заполняет ячейку 'Метка: текст', сохраняя структуру шаблона:
+    первый run — жирная метка, второй — обычный текст."""
+    cell = table.cell(r, c)
+    paragraphs = cell.text_frame.paragraphs
+    first_idx = None
+    for i, p in enumerate(paragraphs):
+        if p.runs:
+            first_idx = i
+            break
+
+    if first_idx is None or len(paragraphs[first_idx].runs) < 2:
+        perfect_replace(cell, f"{label}{body}")
+        return
+
+    first_p = paragraphs[first_idx]
+    first_p.runs[0].text = label
+    first_p.runs[1].text = body
+    for run in first_p.runs[2:]:
+        run.text = ""
+    for i, p in enumerate(paragraphs):
+        if i == first_idx:
+            continue
+        for run in p.runs:
+            run.text = ""
+
+
 def get_table(slide):
     for s in slide.shapes:
         if s.has_table:
@@ -333,11 +360,11 @@ def build_pptx(data: AuditData, audit_type: str = "full") -> io.BytesIO:
 
             t = get_table(slide)
             if t:
-                replace_table_cell(t, 0, 0, f"Уязвимость: {case.vulnerability}")
-                replace_table_cell(t, 1, 0, f"Риски: {case.risk}")
+                replace_labeled_cell(t, 0, 0, "Уязвимость: ", case.vulnerability)
+                replace_labeled_cell(t, 1, 0, "Риски: ", case.risk)
                 if include_recommendations and case.recommendation:
                     rec_row = _clone_table_row(t, 1)
-                    replace_table_cell(t, rec_row, 0, f"Рекомендации: {case.recommendation}")
+                    replace_labeled_cell(t, rec_row, 0, "Рекомендации: ", case.recommendation)
 
             img_path_tuple = next((x for x in temp_images if x[0] == i), None)
             if img_path_tuple:
