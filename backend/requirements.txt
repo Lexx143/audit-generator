@@ -1,6 +1,9 @@
 fastapi
 uvicorn
+openai
+chromadb
 python-pptx
-google-genai
-pydantic
 python-dotenv
+pydantic
+pillow
+requests
