@@ -5,6 +5,7 @@ import io
 import math
 import os
 import time
+from datetime import date
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
@@ -187,6 +188,22 @@ def remove_personal_marks(prs, auditor=None):
                         if photo_bytes:
                             slide.shapes.add_picture(io.BytesIO(photo_bytes), *geom)
 
+    # Титул: "Отчет сформирован: <ФИО>" и текущая дата вместо заглушек шаблона
+    for s in title_slide.shapes:
+        if not (hasattr(s, 'text') and s.text and 'сформирован' in s.text):
+            continue
+        paragraphs = s.text_frame.paragraphs
+        for i, p in enumerate(paragraphs):
+            new_text = None
+            if 'сформирован' in p.text:
+                new_text = "Отчет сформирован: " + auditor_name if auditor_name else "Отчет сформирован"
+            elif 'Дата' in p.text:
+                new_text = f"Дата: {date.today().strftime('%d.%m.%Y')}"
+            if new_text is None:
+                continue
+            for ri, r in enumerate(p.runs):
+                r.text = new_text if ri == 0 else ""
+
     # Внутренний номер: "+7 ... вн. 162" -> оставляем только основной номер
     for slide in prs.slides:
         for s in slide.shapes:
@@ -254,6 +271,51 @@ def _estimate_text_lines(text: str) -> int:
     for chunk in text.split('\n'):
         lines += max(1, math.ceil(len(chunk) / CASE_TABLE_CHARS_PER_LINE))
     return lines
+
+
+# Эталонные позиции с кейс-слайдов 1-2 шаблона
+STANDARD_CASE_TABLE_TOP = 2_444_005
+STANDARD_CASE_TITLE_TOP = 1_937_774
+STANDARD_CASE_PRIO_TOP = 1_955_844
+
+
+def normalize_case_slide_layout(slide):
+    """Выравнивает кейс-слайд по эталону: в шаблоне у слайда кейса 3
+    заголовок и таблица сидят выше, чем у остальных."""
+    table_shape = get_table_shape(slide)
+    if table_shape is None:
+        return
+    delta = STANDARD_CASE_TABLE_TOP - table_shape.top
+    if abs(delta) < 50_000:
+        return
+    for s in slide.shapes:
+        # Блок "Ответ ИТ-руководства" внизу и картинки (их позиционируем отдельно) не трогаем
+        if s.shape_type in (MSO_SHAPE_TYPE.GROUP, MSO_SHAPE_TYPE.PICTURE):
+            continue
+        s.top = s.top + delta
+
+    # Остаточная разница: заголовок/плашка приоритета на слайде кейса 3
+    # имеют иной отступ от таблицы, чем на эталонных слайдах
+    prio = get_priority(slide)
+    if prio is not None:
+        adj = STANDARD_CASE_PRIO_TOP - prio.top
+        if adj:
+            cx = prio.left + prio.width // 2
+            cy = prio.top + prio.height // 2
+            for s in slide.shapes:
+                if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and \
+                        s.left <= cx <= s.left + s.width and s.top <= cy <= s.top + s.height:
+                    s.top = s.top + adj
+            prio.top = STANDARD_CASE_PRIO_TOP
+
+    title = get_title(slide)
+    if title is not None and hasattr(title, 'top'):
+        adj = STANDARD_CASE_TITLE_TOP - title.top
+        if adj:
+            for s in slide.shapes:
+                if s.shape_type == MSO_SHAPE_TYPE.LINE:
+                    s.top = s.top + adj
+            title.top = STANDARD_CASE_TITLE_TOP
 
 
 def clear_case_pictures(slide):
@@ -375,6 +437,7 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
             if i >= len(case_slides):
                 break
             slide = prs.slides[case_slides[i]]
+            normalize_case_slide_layout(slide)
             perfect_replace(get_title(slide), f"Кейс {i+1}: {case.title}")
 
             if get_priority(slide):

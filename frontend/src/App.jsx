@@ -93,7 +93,7 @@ function App() {
   const handleSaveAuditor = async () => {
     if (!newAuditor?.name?.trim()) {
       addToast("Укажите имя аудитора", 'error');
-      return;
+      return null;
     }
     try {
       const res = await fetch(`${API}/api/auditors`, {
@@ -103,15 +103,17 @@ function App() {
       });
       if (!res.ok) {
         addToast("Не удалось сохранить аудитора: " + (await res.text()).slice(0, 150), 'error');
-        return;
+        return null;
       }
       const saved = await res.json();
       setAuditors(prev => [...prev.filter(a => a.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name)));
       setAuditorId(saved.id);
       setNewAuditor(null);
       addToast(`Аудитор «${saved.name}» сохранен`, 'success');
+      return saved;
     } catch (e) {
       addToast("Ошибка сети: " + e, 'error');
+      return null;
     }
   };
 
@@ -355,6 +357,11 @@ function App() {
 
   const handleGeneratePptx = async () => {
     setLoading(true);
+    // Форму нового аудитора могли заполнить, но не нажать «Сохранить» — дожимаем сами
+    let auditor = auditors.find(a => a.id === auditorId) || null;
+    if (!auditor && newAuditor?.name?.trim()) {
+      auditor = await handleSaveAuditor();
+    }
     try {
       const res = await fetch(`${API}/api/generate_pptx`, {
         method: 'POST',
@@ -366,7 +373,7 @@ function App() {
           },
           audit_type: auditType,
           save_to_memory: saveToMemory,
-          auditor: auditors.find(a => a.id === auditorId) || null
+          auditor
         })
       });
 
