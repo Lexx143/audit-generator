@@ -660,7 +660,7 @@ function App() {
                         <button className="btn" style={{padding: '0.5rem 1rem', fontSize: '0.9rem'}} onClick={() => handleRegenerateImage(i)}>
                           {c.image_b64 ? "🎨 Сгенерировать" : "Сгенерировать"}
                         </button>
-                        <label className="btn" style={{padding: '0.5rem 1rem', fontSize: '0.9rem', background: 'var(--bg-dark)'}}>
+                        <label className="btn btn-upload" style={{padding: '0.5rem 1rem', fontSize: '0.9rem'}}>
                           📁 Загрузить
                           <input type="file" accept="image/*" hidden onChange={e => {
                             handleUploadImage(i, e.target.files?.[0]);

@@ -152,6 +152,17 @@
 
 .auditor-photo-btn { display: inline-flex; align-items: center; gap: 0.3rem; }
 
+/* Кнопка на темном оверлее картинки — всегда темная, независимо от темы */
+.btn-upload {
+  background: rgba(20, 20, 20, 0.85);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.btn-upload:hover {
+  background: rgba(0, 0, 0, 0.95);
+}
+
 /* Картинки кейса: стрелки перелистывания библиотеки */
 .image-actions {
   display: flex;
