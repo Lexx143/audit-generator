@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import TextareaAutosize from 'react-textarea-autosize';
 import './App.css'
-
-const API = 'http://localhost:8000';
+// In development, use localhost:8000. In production, use empty string to use relative path (proxied by Nginx).
+const API = import.meta.env.DEV ? 'http://localhost:8000' : '';
 const DRAFT_KEY = 'audit-generator-draft';
 
 const IMAGE_STYLES = [
