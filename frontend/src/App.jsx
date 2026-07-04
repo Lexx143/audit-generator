@@ -332,7 +332,17 @@ function App() {
                 }}
               >
                 <option value="">-- Выбрать из частых уязвимостей --</option>
-                {hints.map((h, i) => <option key={i} value={h}>{h}</option>)}
+                {Object.entries(
+                  hints.reduce((acc, h) => {
+                    const hint = typeof h === 'string' ? { text: h, category: 'Прочее' } : h;
+                    (acc[hint.category] = acc[hint.category] || []).push(hint.text);
+                    return acc;
+                  }, {})
+                ).map(([category, items]) => (
+                  <optgroup key={category} label={category}>
+                    {items.map((text, i) => <option key={i} value={text}>{text}</option>)}
+                  </optgroup>
+                ))}
               </select>
             </div>
           </div>
