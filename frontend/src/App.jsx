@@ -39,6 +39,7 @@ function App() {
   const [batchProgress, setBatchProgress] = useState(null); // {done, total}
   const [toasts, setToasts] = useState([]);
   const [reviseCaseOpen, setReviseCaseOpen] = useState({}); // {idx: comment}
+  const [saveToMemory, setSaveToMemory] = useState(false);
 
   const addToast = useCallback((message, type = 'info') => {
     const id = Date.now() + Math.random();
@@ -242,7 +243,7 @@ function App() {
       const res = await fetch(`${API}/api/generate_pptx`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: auditData, audit_type: auditType })
+        body: JSON.stringify({ data: auditData, audit_type: auditType, save_to_memory: saveToMemory })
       });
 
       if (!res.ok) {
@@ -261,7 +262,7 @@ function App() {
       a.remove();
       window.URL.revokeObjectURL(url);
 
-      addToast("Отчет скачан и сохранен в базу знаний ИИ", 'success');
+      addToast(saveToMemory ? "Отчет скачан и сохранен в базу знаний ИИ" : "Отчет скачан", 'success');
     } catch (err) {
       addToast("Ошибка сети при скачивании: " + err, 'error');
     }
@@ -523,6 +524,17 @@ function App() {
               <button className="btn" onClick={handleGeneratePptx} disabled={loading || revising} style={{fontSize: '1.25rem', padding: '1rem 3rem'}}>
                 {loading ? <div className="loader"></div> : "💾 Скачать PPTX Отчет"}
               </button>
+              <label className="memory-checkbox">
+                <input
+                  type="checkbox"
+                  checked={saveToMemory}
+                  onChange={e => setSaveToMemory(e.target.checked)}
+                />
+                <span>
+                  Сохранить этот аудит в базу знаний ИИ — он будет использоваться как образец,
+                  чтобы будущие отчеты получались точнее и качественнее
+                </span>
+              </label>
             </div>
           </div>
         </div>

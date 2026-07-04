@@ -101,3 +101,23 @@
 }
 
 .style-select-wrap select { width: auto; padding: 0.6rem 1rem; }
+
+.memory-checkbox {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  justify-content: center;
+  max-width: 520px;
+  margin: 1rem auto 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.memory-checkbox input[type="checkbox"] {
+  width: auto;
+  margin-top: 0.15rem;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
