@@ -48,3 +48,4 @@ class GenerateImageRequest(BaseModel):
 class GeneratePptxRequest(BaseModel):
     data: AuditData
     audit_type: Optional[str] = "full"
+    save_to_memory: bool = False

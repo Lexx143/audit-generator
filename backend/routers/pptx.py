@@ -20,10 +20,11 @@ async def generate_pptx(req: GeneratePptxRequest):
 
     output_io = pptx_builder.build_pptx(data, audit_type=req.audit_type or "full")
 
-    try:
-        rag.save_report_to_memory(data)
-    except Exception as e:
-        print(f"Failed to save to RAG memory: {e}")
+    if req.save_to_memory:
+        try:
+            rag.save_report_to_memory(data)
+        except Exception as e:
+            print(f"Failed to save to RAG memory: {e}")
 
     return StreamingResponse(
         output_io,
