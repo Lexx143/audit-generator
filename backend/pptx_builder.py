@@ -4,6 +4,7 @@ import hashlib
 import io
 import math
 import os
+import re
 import time
 from datetime import date
 
@@ -33,6 +34,12 @@ PRIORITY_COLORS = {
 }
 
 COMPANY_ADDRESS = "Янтарная улица, 58в"
+
+ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII"]
+
+
+def _strip_category_number(cat: str) -> str:
+    return re.sub(r"^\s*[IVXivx]+\.\s*", "", (cat or "").strip())
 
 
 def perfect_replace(shape, new_text):
@@ -393,19 +400,21 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
 
         prio_counts = {"ПЕРВЫЙ ПРИОРИТЕТ": 0, "ВТОРОЙ ПРИОРИТЕТ": 0, "ТРЕТИЙ ПРИОРИТЕТ": 0}
 
-        # Категории — реальные значения из кейсов (в порядке появления).
-        # В таблице шаблона максимум 3 строки: лишние категории считаем в последней.
+        # Категории в макете без нумерации — римские номера проставляем здесь,
+        # по порядку появления. В таблице шаблона максимум 3 строки:
+        # лишние категории считаем в последней.
         ordered_cats = []
         for case in data.cases:
-            cat = (case.category or "").strip() or "Прочее"
+            cat = _strip_category_number(case.category) or "Прочее"
             if cat not in ordered_cats:
                 ordered_cats.append(cat)
-        table_cats = ordered_cats[:3]
+        numbered = {name: f"{ROMAN[min(i, len(ROMAN)-1)]}. {name}" for i, name in enumerate(ordered_cats)}
+        table_cats = [numbered[n] for n in ordered_cats[:3]]
         cat_counts = {c: {"ПЕРВЫЙ ПРИОРИТЕТ": 0, "ВТОРОЙ ПРИОРИТЕТ": 0, "ТРЕТИЙ ПРИОРИТЕТ": 0} for c in table_cats}
 
         for case in data.cases:
             prio_counts[case.priority] += 1
-            cat = (case.category or "").strip() or "Прочее"
+            cat = numbered[_strip_category_number(case.category) or "Прочее"]
             key = cat if cat in cat_counts else table_cats[-1]
             cat_counts[key][case.priority] += 1
 
@@ -430,8 +439,13 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
 
         # Заголовки секций — по категории первого кейса секции
         # (кейсы 1-3 идут под первым разделителем, 4-5 — под вторым)
-        section1_title = (data.cases[0].category or "").strip() if data.cases else "I. Серверная инфраструктура"
-        section2_title = (data.cases[3].category or "").strip() if len(data.cases) > 3 else "II. Сеть и ИТ-поддержка"
+        def _section_title(idx, fallback):
+            if len(data.cases) > idx:
+                return numbered[_strip_category_number(data.cases[idx].category) or "Прочее"]
+            return fallback
+
+        section1_title = _section_title(0, "I. Серверная инфраструктура")
+        section2_title = _section_title(3, "II. Сеть и ИТ-поддержка")
 
         for s in prs.slides[5].shapes:
             if hasattr(s, 'text') and s.text and 'I.' in s.text:

@@ -38,6 +38,38 @@ images_collection = chroma_client.get_or_create_collection(
 
 IMAGES_DIR = os.path.join(config.CHROMA_PATH, "images")
 AUDITORS_FILE = os.path.join(config.CHROMA_PATH, "auditors.json")
+CATEGORIES_FILE = os.path.join(config.CHROMA_PATH, "categories.json")
+
+DEFAULT_CATEGORIES = [
+    "Серверная инфраструктура",
+    "Сеть и ИТ-поддержка",
+    "Безопасность",
+    "1C",
+    "Видеонаблюдение и СКУД",
+]
+
+
+def strip_category_number(cat: str) -> str:
+    """Убирает римскую нумерацию ('II. Сеть' -> 'Сеть')."""
+    return re.sub(r"^\s*[IVXivx]+\.\s*", "", (cat or "").strip())
+
+
+def get_categories() -> list[str]:
+    if os.path.exists(CATEGORIES_FILE):
+        with open(CATEGORIES_FILE, "r") as f:
+            return json.load(f)
+    return list(DEFAULT_CATEGORIES)
+
+
+def add_category(name: str) -> list[str]:
+    name = strip_category_number(name)
+    cats = get_categories()
+    if name and name.lower() not in [c.lower() for c in cats]:
+        cats.append(name)
+        os.makedirs(config.CHROMA_PATH, exist_ok=True)
+        with open(CATEGORIES_FILE, "w") as f:
+            json.dump(cats, f, ensure_ascii=False, indent=2)
+    return cats
 
 HINT_CATEGORIES = [
     "I. Серверная инфраструктура",
@@ -113,7 +145,12 @@ def add_hint(text: str, category: str = "VI. Прочее") -> bool:
     if len(text) < 8:
         return False
     if category not in HINT_CATEGORIES:
-        category = "VI. Прочее"
+        # категории кейсов теперь без нумерации — сопоставляем по названию
+        bare = strip_category_number(category).lower()
+        category = next(
+            (h for h in HINT_CATEGORIES if strip_category_number(h).lower() == bare),
+            "VI. Прочее",
+        )
 
     try:
         if hints_collection.count() > 0:

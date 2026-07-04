@@ -14,6 +14,19 @@ async def get_hints_api():
     return {"hints": rag.get_hints()}
 
 
+@router.get("/api/categories")
+async def get_categories_api():
+    return {"categories": rag.get_categories()}
+
+
+@router.post("/api/categories")
+async def add_category_api(payload: dict):
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Название категории пустое")
+    return {"categories": rag.add_category(name)}
+
+
 @router.post("/api/parse")
 async def parse_audit(req: ParseRequest):
     try:

@@ -13,13 +13,9 @@ const IMAGE_STYLES = [
   { value: 'isometric', label: 'Изометрия' },
 ];
 
-const CATEGORIES = [
-  'I. Серверная инфраструктура',
-  'II. Сеть и ИТ-поддержка',
-  'III. Безопасность',
-  'IV. 1C',
-  'V. Видеонаблюдение и СКУД',
-];
+// Номера разделов (I, II, ...) в макете не показываем — они проставляются
+// автоматически при выгрузке отчета по порядку появления категорий
+const stripCategoryNumber = (cat) => (cat || '').replace(/^\s*[IVXivx]+\.\s*/, '').trim();
 
 function loadDraft() {
   try {
@@ -51,6 +47,7 @@ function App() {
   const [reviseCaseOpen, setReviseCaseOpen] = useState({}); // {idx: comment}
   const [saveToMemory, setSaveToMemory] = useState(false);
   const [auditors, setAuditors] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [auditorId, setAuditorId] = useState(draft?.auditorId || '');
   const [newAuditor, setNewAuditor] = useState(null); // {name, photo_b64} | null
   const [theme, setTheme] = useState(localStorage.getItem('audit-theme') || 'dark');
@@ -79,7 +76,36 @@ function App() {
       .then(res => res.json())
       .then(data => setAuditors(data.auditors || []))
       .catch(err => console.error("Failed to load auditors:", err));
+    fetch(`${API}/api/categories`)
+      .then(res => res.json())
+      .then(data => setCategories(data.categories || []))
+      .catch(err => console.error("Failed to load categories:", err));
   }, []);
+
+  const handleSaveCategory = async (index) => {
+    const name = stripCategoryNumber(auditData.cases[index].category);
+    if (!name) {
+      addToast("Название категории пустое", 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/api/categories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (!res.ok) {
+        addToast("Не удалось сохранить категорию", 'error');
+        return;
+      }
+      const data = await res.json();
+      setCategories(data.categories || []);
+      updateCase(index, { category: name, categoryCustom: false });
+      addToast(`Категория «${name}» сохранена — доступна во всех кейсах`, 'success');
+    } catch (e) {
+      addToast("Ошибка сети: " + e, 'error');
+    }
+  };
 
   // Файл -> сжатый dataURL (максимум 1024px по большей стороне)
   const fileToDataUrl = (file, maxSide = 1024) => new Promise((resolve, reject) => {
@@ -284,6 +310,7 @@ function App() {
         return;
       }
       const data = await res.json();
+      data.cases = data.cases.map(c => ({ ...c, category: stripCategoryNumber(c.category) }));
       setAuditData(data);
       setStep(2);
       addToast("Структура аудита готова", 'success');
@@ -403,6 +430,7 @@ function App() {
         return;
       }
       const data = await res.json();
+      data.cases = data.cases.map(c => ({ ...c, category: stripCategoryNumber(c.category) }));
       setAuditData(data);
       setRevisionText("");
       addToast("Правки применены", 'success');
@@ -630,7 +658,7 @@ function App() {
                 </div>
 
                 <TextareaAutosize value={c.title} onChange={e => handleCaseChange(i, 'title', e.target.value)} minRows={2} />
-                {CATEGORIES.includes(c.category) && !c.categoryCustom ? (
+                {categories.includes(c.category) && !c.categoryCustom ? (
                   <select
                     value={c.category}
                     onChange={e => {
@@ -642,7 +670,7 @@ function App() {
                     }}
                     style={{width: '100%', marginBottom: '1rem'}}
                   >
-                    {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                     <option value="__custom__">✏️ Своя категория…</option>
                   </select>
                 ) : (
@@ -651,11 +679,12 @@ function App() {
                       value={c.category}
                       autoFocus={!!c.categoryCustom}
                       onChange={e => handleCaseChange(i, 'category', e.target.value)}
-                      placeholder="Название раздела..."
+                      placeholder="Название раздела (без номера)..."
                       style={{flex: 1}}
                     />
+                    <button className="btn-small" title="Сохранить категорию — станет доступна во всех кейсах" onClick={() => handleSaveCategory(i)}>💾</button>
                     <button className="btn-small" title="Выбрать из списка" onClick={() => {
-                      updateCase(i, { category: CATEGORIES.includes(c.category) ? c.category : CATEGORIES[0], categoryCustom: false });
+                      updateCase(i, { category: categories.includes(c.category) ? c.category : (categories[0] || ''), categoryCustom: false });
                     }}>▾</button>
                   </div>
                 )}
