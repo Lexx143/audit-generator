@@ -24,6 +24,15 @@ CASE_IMAGE_MARGIN_EMU = 150_000
 CASE_IMAGE_MAX_EMU = 3_111_500
 CASE_IMAGE_MIN_EMU = 1_100_000
 
+# Фирменные цвета плашек приоритета (из шаблона)
+PRIORITY_COLORS = {
+    "ПЕРВЫЙ ПРИОРИТЕТ": RGBColor(0xE3, 0x4A, 0x4E),
+    "ВТОРОЙ ПРИОРИТЕТ": RGBColor(0xFB, 0xBA, 0x36),
+    "ТРЕТИЙ ПРИОРИТЕТ": RGBColor(0x01, 0xB9, 0xD2),
+}
+
+COMPANY_ADDRESS = "Янтарная улица, 58в"
+
 
 def perfect_replace(shape, new_text):
     if not hasattr(shape, "text_frame"):
@@ -93,6 +102,22 @@ def get_priority(slide):
     return None
 
 
+def recolor_priority_badge(slide, priority):
+    """Красит плашку под текстом приоритета в цвет, соответствующий приоритету."""
+    color = PRIORITY_COLORS.get(priority)
+    prio_box = get_priority(slide)
+    if color is None or prio_box is None:
+        return
+    cx = prio_box.left + prio_box.width // 2
+    cy = prio_box.top + prio_box.height // 2
+    for s in slide.shapes:
+        if s.shape_type != MSO_SHAPE_TYPE.AUTO_SHAPE:
+            continue
+        if s.left <= cx <= s.left + s.width and s.top <= cy <= s.top + s.height:
+            s.fill.solid()
+            s.fill.fore_color.rgb = color
+
+
 def _delete_shape(shape):
     shape._element.getparent().remove(shape._element)
 
@@ -133,6 +158,22 @@ def remove_personal_marks(prs):
                     if 'вн' in r.text or '162' in r.text:
                         r.text = ''
 
+    # Блок "Отчет составил <ФИО, должность, личный телефон>"
+    for slide in prs.slides:
+        for s in list(slide.shapes):
+            if hasattr(s, 'text') and s.text and 'Отчет составил' in s.text:
+                _delete_shape(s)
+
+    # Актуальный адрес офиса на слайде контактов
+    for slide in prs.slides:
+        for s in slide.shapes:
+            if not (hasattr(s, 'text') and s.text and 'Абая' in s.text):
+                continue
+            for p in s.text_frame.paragraphs:
+                for r in p.runs:
+                    if 'Абая' in r.text:
+                        r.text = COMPANY_ADDRESS
+
 
 def fix_title_colors(prs):
     """Титульный лист: текст без явного цвета рендерится черным — делаем белым."""
@@ -165,6 +206,17 @@ def _estimate_text_lines(text: str) -> int:
     return lines
 
 
+def clear_case_pictures(slide):
+    """Удаляет шаблонные фото кейса (фотографии объектов прошлых клиентов).
+    Возвращает центр X последней удаленной картинки для позиционирования новой."""
+    old_center_x = None
+    for s in list(slide.shapes):
+        if s.shape_type == MSO_SHAPE_TYPE.PICTURE:
+            old_center_x = s.left + s.width // 2
+            _delete_shape(s)
+    return old_center_x
+
+
 def layout_case_image(slide, img_path):
     """Ставит картинку кейса под таблицей, ужимая так, чтобы не налезать
     на текст сверху и блок 'Ответ ИТ-руководства' снизу."""
@@ -181,11 +233,7 @@ def layout_case_image(slide, img_path):
 
     # Верхняя граница: оценка фактической высоты таблицы с текстом
     top_limit = 4_350_883  # позиция картинки в шаблоне как fallback
-    old_center_x = None
-    for s in list(slide.shapes):
-        if s.shape_type == MSO_SHAPE_TYPE.PICTURE:
-            old_center_x = s.left + s.width // 2
-            _delete_shape(s)
+    old_center_x = clear_case_pictures(slide)
 
     if table_shape is not None:
         t = table_shape.table
@@ -237,10 +285,13 @@ def build_pptx(data: AuditData, audit_type: str = "full") -> io.BytesIO:
             "II. Сеть и ИТ-поддержка": {"ПЕРВЫЙ ПРИОРИТЕТ": 0, "ВТОРОЙ ПРИОРИТЕТ": 0, "ТРЕТИЙ ПРИОРИТЕТ": 0}
         }
 
-        for case in data.cases:
+        # Категории считаем по фактическому размещению в отчете: кейсы 1-3 идут
+        # в раздел I, кейсы 4-5 — в раздел II (структура шаблона фиксированная),
+        # иначе таблица распределения расходится с содержимым секций.
+        for i, case in enumerate(data.cases):
             prio_counts[case.priority] += 1
-            if case.category in cat_counts:
-                cat_counts[case.category][case.priority] += 1
+            placed_cat = "I. Серверная инфраструктура" if i < 3 else "II. Сеть и ИТ-поддержка"
+            cat_counts[placed_cat][case.priority] += 1
 
         t3 = get_table(prs.slides[3])
         if t3:
@@ -278,6 +329,7 @@ def build_pptx(data: AuditData, audit_type: str = "full") -> io.BytesIO:
 
             if get_priority(slide):
                 perfect_replace(get_priority(slide), case.priority)
+                recolor_priority_badge(slide, case.priority)
 
             t = get_table(slide)
             if t:
@@ -290,6 +342,9 @@ def build_pptx(data: AuditData, audit_type: str = "full") -> io.BytesIO:
             img_path_tuple = next((x for x in temp_images if x[0] == i), None)
             if img_path_tuple:
                 layout_case_image(slide, img_path_tuple[1])
+            else:
+                # Без новой картинки шаблонное фото чужого клиента в отчете не оставляем
+                clear_case_pictures(slide)
 
         conc_text = "\n".join([f"• {c}" for c in data.conclusions])
         for s in prs.slides[16].shapes:
