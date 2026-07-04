@@ -205,9 +205,10 @@ textarea:focus, input:focus, select:focus {
   font-weight: 700;
   text-transform: uppercase;
 }
-.badge.red { background: rgba(227, 71, 74, 0.2); color: #ff6b6b; border: 1px solid rgba(227, 71, 74, 0.5); }
-.badge.orange { background: rgba(255, 165, 0, 0.2); color: #ffa500; border: 1px solid rgba(255, 165, 0, 0.5); }
-.badge.yellow { background: rgba(255, 255, 0, 0.2); color: #ffff00; border: 1px solid rgba(255, 255, 0, 0.5); }
+/* Цвета приоритетов — как в шаблоне отчета: E34A4E / FBBA36 / 01B9D2 */
+.badge.red { background: rgba(227, 74, 78, 0.2); color: #ff6b6b; border: 1px solid rgba(227, 74, 78, 0.5); }
+.badge.orange { background: rgba(251, 186, 54, 0.2); color: #fbba36; border: 1px solid rgba(251, 186, 54, 0.5); }
+.badge.cyan { background: rgba(1, 185, 210, 0.2); color: #01b9d2; border: 1px solid rgba(1, 185, 210, 0.5); }
 
 .loader {
   border: 4px solid var(--border-glass);

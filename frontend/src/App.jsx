@@ -574,7 +574,7 @@ function App() {
               <div key={i} className="glass-panel case-card" style={{padding: '1.5rem'}}>
                 <div className="flex-between">
                   <h4>Кейс {i+1}</h4>
-                  <span className={`badge ${c.priority === 'ПЕРВЫЙ ПРИОРИТЕТ' ? 'red' : c.priority === 'ВТОРОЙ ПРИОРИТЕТ' ? 'orange' : 'yellow'}`}>
+                  <span className={`badge ${c.priority === 'ПЕРВЫЙ ПРИОРИТЕТ' ? 'red' : c.priority === 'ВТОРОЙ ПРИОРИТЕТ' ? 'orange' : 'cyan'}`}>
                     {c.priority}
                   </span>
                 </div>
