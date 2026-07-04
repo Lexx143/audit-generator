@@ -13,6 +13,14 @@ const IMAGE_STYLES = [
   { value: 'isometric', label: 'Изометрия' },
 ];
 
+const CATEGORIES = [
+  'I. Серверная инфраструктура',
+  'II. Сеть и ИТ-поддержка',
+  'III. Безопасность',
+  'IV. 1C',
+  'V. Видеонаблюдение и СКУД',
+];
+
 function loadDraft() {
   try {
     const raw = localStorage.getItem(DRAFT_KEY);
@@ -89,6 +97,55 @@ function App() {
     img.onerror = reject;
     img.src = url;
   });
+
+  // --- Кадрирование фото аудитора ---
+  const CROP_VIEW = 260;
+  const [photoCrop, setPhotoCrop] = useState(null); // {src, nw, nh, scale, minScale, x, y}
+  const cropDragRef = useRef(null);
+
+  const openPhotoCrop = async (file) => {
+    try {
+      const src = await fileToDataUrl(file, 1600);
+      const img = new Image();
+      img.onload = () => {
+        const minScale = CROP_VIEW / Math.min(img.width, img.height);
+        setPhotoCrop({
+          src, nw: img.width, nh: img.height, scale: minScale, minScale,
+          x: (CROP_VIEW - img.width * minScale) / 2,
+          y: (CROP_VIEW - img.height * minScale) / 2,
+        });
+      };
+      img.src = src;
+    } catch {
+      addToast("Не удалось прочитать фото", 'error');
+    }
+  };
+
+  const clampCrop = (c) => {
+    const w = c.nw * c.scale, h = c.nh * c.scale;
+    return { ...c, x: Math.min(0, Math.max(CROP_VIEW - w, c.x)), y: Math.min(0, Math.max(CROP_VIEW - h, c.y)) };
+  };
+
+  const cropZoom = (newScale) => {
+    setPhotoCrop(c => {
+      const cx = (CROP_VIEW / 2 - c.x) / c.scale;
+      const cy = (CROP_VIEW / 2 - c.y) / c.scale;
+      return clampCrop({ ...c, scale: newScale, x: CROP_VIEW / 2 - cx * newScale, y: CROP_VIEW / 2 - cy * newScale });
+    });
+  };
+
+  const applyCrop = () => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 512;
+      const s = photoCrop.scale;
+      canvas.getContext('2d').drawImage(img, -photoCrop.x / s, -photoCrop.y / s, CROP_VIEW / s, CROP_VIEW / s, 0, 0, 512, 512);
+      setNewAuditor(prev => ({ ...prev, photo_b64: canvas.toDataURL('image/jpeg', 0.9) }));
+      setPhotoCrop(null);
+    };
+    img.src = photoCrop.src;
+  };
 
   const handleSaveAuditor = async () => {
     if (!newAuditor?.name?.trim()) {
@@ -369,7 +426,7 @@ function App() {
         body: JSON.stringify({
           data: {
             ...auditData,
-            cases: auditData.cases.map(({ suggestions, suggIdx, imageGenerating, textRevising, image_source, ...c }) => c)
+            cases: auditData.cases.map(({ suggestions, suggIdx, imageGenerating, textRevising, image_source, categoryCustom, ...c }) => c)
           },
           audit_type: auditType,
           save_to_memory: saveToMemory,
@@ -513,15 +570,9 @@ function App() {
                     type="file"
                     accept="image/*"
                     hidden
-                    onChange={async e => {
+                    onChange={e => {
                       const file = e.target.files?.[0];
-                      if (!file) return;
-                      try {
-                        const dataUrl = await fileToDataUrl(file, 800);
-                        setNewAuditor(prev => ({ ...prev, photo_b64: dataUrl }));
-                      } catch {
-                        addToast("Не удалось прочитать фото", 'error');
-                      }
+                      if (file) openPhotoCrop(file);
                       e.target.value = "";
                     }}
                   />
@@ -550,14 +601,6 @@ function App() {
 
       {step === 2 && auditData && (
         <div className="result-container" style={{animation: 'fadeIn 0.5s'}}>
-          <datalist id="category-options">
-            <option value="I. Серверная инфраструктура" />
-            <option value="II. Сеть и ИТ-поддержка" />
-            <option value="III. Безопасность" />
-            <option value="IV. 1C" />
-            <option value="V. Видеонаблюдение и СКУД" />
-          </datalist>
-
           <div className="flex-between" style={{marginBottom: '2rem'}}>
             <h2>Предпросмотр: {auditData.client_name}</h2>
             <div style={{display: 'flex', gap: '0.5rem'}}>
@@ -587,13 +630,35 @@ function App() {
                 </div>
 
                 <TextareaAutosize value={c.title} onChange={e => handleCaseChange(i, 'title', e.target.value)} minRows={2} />
-                <input
-                  list="category-options"
-                  value={c.category}
-                  onChange={e => handleCaseChange(i, 'category', e.target.value)}
-                  placeholder="Введите или выберите раздел..."
-                  style={{width: '100%', marginBottom: '1rem'}}
-                />
+                {CATEGORIES.includes(c.category) && !c.categoryCustom ? (
+                  <select
+                    value={c.category}
+                    onChange={e => {
+                      if (e.target.value === '__custom__') {
+                        updateCase(i, { categoryCustom: true });
+                      } else {
+                        handleCaseChange(i, 'category', e.target.value);
+                      }
+                    }}
+                    style={{width: '100%', marginBottom: '1rem'}}
+                  >
+                    {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    <option value="__custom__">✏️ Своя категория…</option>
+                  </select>
+                ) : (
+                  <div style={{display: 'flex', gap: '0.5rem', marginBottom: '1rem'}}>
+                    <input
+                      value={c.category}
+                      autoFocus={!!c.categoryCustom}
+                      onChange={e => handleCaseChange(i, 'category', e.target.value)}
+                      placeholder="Название раздела..."
+                      style={{flex: 1}}
+                    />
+                    <button className="btn-small" title="Выбрать из списка" onClick={() => {
+                      updateCase(i, { category: CATEGORIES.includes(c.category) ? c.category : CATEGORIES[0], categoryCustom: false });
+                    }}>▾</button>
+                  </div>
+                )}
 
                 <div>
                   <label style={{fontSize: '0.85rem'}}>Уязвимость:</label>
@@ -768,6 +833,59 @@ function App() {
           </div>
         </div>
       )}
+
+      {photoCrop && (
+        <div className="crop-backdrop">
+          <div className="crop-modal glass-panel">
+            <h3>Кадрирование фото</h3>
+            <p style={{fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0.5rem 0 1rem'}}>
+              Перетащите фото и подберите масштаб — в отчет попадет выделенная область.
+            </p>
+            <div
+              className="crop-viewport"
+              onPointerDown={e => {
+                cropDragRef.current = { sx: e.clientX, sy: e.clientY, ox: photoCrop.x, oy: photoCrop.y };
+                e.currentTarget.setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={e => {
+                if (!cropDragRef.current) return;
+                const d = cropDragRef.current;
+                setPhotoCrop(c => clampCrop({ ...c, x: d.ox + e.clientX - d.sx, y: d.oy + e.clientY - d.sy }));
+              }}
+              onPointerUp={() => { cropDragRef.current = null; }}
+            >
+              <img
+                src={photoCrop.src}
+                draggable={false}
+                alt=""
+                style={{
+                  width: photoCrop.nw * photoCrop.scale,
+                  height: photoCrop.nh * photoCrop.scale,
+                  transform: `translate(${photoCrop.x}px, ${photoCrop.y}px)`
+                }}
+              />
+              <div className="crop-mask"></div>
+            </div>
+            <input
+              type="range"
+              min={photoCrop.minScale}
+              max={photoCrop.minScale * 4}
+              step="0.01"
+              value={photoCrop.scale}
+              onChange={e => cropZoom(parseFloat(e.target.value))}
+              style={{marginTop: '1rem'}}
+            />
+            <div style={{display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem'}}>
+              <button className="btn-small" onClick={() => setPhotoCrop(null)}>Отмена</button>
+              <button className="btn" style={{padding: '0.5rem 1.5rem', fontSize: '0.95rem'}} onClick={applyCrop}>Готово</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <footer className="site-footer">
+        Разработка: Lexx · <a href="mailto:deuslevolt013@gmail.com">deuslevolt013@gmail.com</a>
+      </footer>
 
       <div className="toast-container">
         {toasts.map(t => (

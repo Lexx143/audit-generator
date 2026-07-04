@@ -392,18 +392,22 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
                 perfect_replace(s, data.review)
 
         prio_counts = {"ПЕРВЫЙ ПРИОРИТЕТ": 0, "ВТОРОЙ ПРИОРИТЕТ": 0, "ТРЕТИЙ ПРИОРИТЕТ": 0}
-        cat_counts = {
-            "I. Серверная инфраструктура": {"ПЕРВЫЙ ПРИОРИТЕТ": 0, "ВТОРОЙ ПРИОРИТЕТ": 0, "ТРЕТИЙ ПРИОРИТЕТ": 0},
-            "II. Сеть и ИТ-поддержка": {"ПЕРВЫЙ ПРИОРИТЕТ": 0, "ВТОРОЙ ПРИОРИТЕТ": 0, "ТРЕТИЙ ПРИОРИТЕТ": 0}
-        }
 
-        # Категории считаем по фактическому размещению в отчете: кейсы 1-3 идут
-        # в раздел I, кейсы 4-5 — в раздел II (структура шаблона фиксированная),
-        # иначе таблица распределения расходится с содержимым секций.
-        for i, case in enumerate(data.cases):
+        # Категории — реальные значения из кейсов (в порядке появления).
+        # В таблице шаблона максимум 3 строки: лишние категории считаем в последней.
+        ordered_cats = []
+        for case in data.cases:
+            cat = (case.category or "").strip() or "Прочее"
+            if cat not in ordered_cats:
+                ordered_cats.append(cat)
+        table_cats = ordered_cats[:3]
+        cat_counts = {c: {"ПЕРВЫЙ ПРИОРИТЕТ": 0, "ВТОРОЙ ПРИОРИТЕТ": 0, "ТРЕТИЙ ПРИОРИТЕТ": 0} for c in table_cats}
+
+        for case in data.cases:
             prio_counts[case.priority] += 1
-            placed_cat = "I. Серверная инфраструктура" if i < 3 else "II. Сеть и ИТ-поддержка"
-            cat_counts[placed_cat][case.priority] += 1
+            cat = (case.category or "").strip() or "Прочее"
+            key = cat if cat in cat_counts else table_cats[-1]
+            cat_counts[key][case.priority] += 1
 
         t3 = get_table(prs.slides[3])
         if t3:
@@ -413,7 +417,7 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
 
         t4 = get_table(prs.slides[4])
         if t4:
-            cats = list(cat_counts.keys())
+            cats = table_cats
             for r, cat in enumerate(cats):
                 replace_table_cell(t4, r, 0, cat)
                 replace_table_cell(t4, r, 1, str(cat_counts[cat]["ПЕРВЫЙ ПРИОРИТЕТ"]))
@@ -424,13 +428,18 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
             for r in range(len(t4.rows) - 1, len(cats) - 1, -1):
                 _delete_table_row(t4, r)
 
+        # Заголовки секций — по категории первого кейса секции
+        # (кейсы 1-3 идут под первым разделителем, 4-5 — под вторым)
+        section1_title = (data.cases[0].category or "").strip() if data.cases else "I. Серверная инфраструктура"
+        section2_title = (data.cases[3].category or "").strip() if len(data.cases) > 3 else "II. Сеть и ИТ-поддержка"
+
         for s in prs.slides[5].shapes:
             if hasattr(s, 'text') and s.text and 'I.' in s.text:
-                perfect_replace(s, "I. Серверная инфраструктура")
+                perfect_replace(s, section1_title)
 
         for s in prs.slides[9].shapes:
             if hasattr(s, 'text') and s.text and 'II.' in s.text:
-                perfect_replace(s, "II. Сеть и ИТ-поддержка")
+                perfect_replace(s, section2_title)
 
         case_slides = [6, 7, 8, 10, 11]
         for i, case in enumerate(data.cases):

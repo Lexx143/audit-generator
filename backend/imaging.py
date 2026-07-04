@@ -79,8 +79,9 @@ def _placeholder_b64(seed_text: str) -> str:
     return f"data:image/png;base64,{b64}"
 
 
-def crop_photo_to_circle(photo_b64: str, size: int = 512) -> str:
-    """Квадратный кроп по центру + круглая маска — как фото аудитора в шаблоне."""
+def prepare_auditor_photo(photo_b64: str, size: int = 512) -> str:
+    """Квадратный кроп + маска-капелька, как фото аудитора в шаблоне
+    (круг с "острым" правым нижним углом)."""
     from PIL import Image, ImageDraw, ImageOps
 
     raw = base64.b64decode(photo_b64.split(",", 1)[-1])
@@ -89,7 +90,9 @@ def crop_photo_to_circle(photo_b64: str, size: int = 512) -> str:
     img = ImageOps.fit(img, (size, size), Image.LANCZOS)
 
     mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(mask).ellipse((0, 0, size, size), fill=255)
+    draw = ImageDraw.Draw(mask)
+    draw.ellipse((0, 0, size, size), fill=255)
+    draw.rectangle((size // 2, size // 2, size, size), fill=255)  # угол капельки
     out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     out.paste(img, (0, 0), mask)
 

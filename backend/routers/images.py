@@ -37,7 +37,7 @@ async def create_auditor(req: Auditor):
     photo = req.photo_b64
     if photo:
         try:
-            photo = imaging.crop_photo_to_circle(photo)
+            photo = imaging.prepare_auditor_photo(photo)
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Не удалось обработать фото: {e}")
     return rag.save_auditor(req.name, photo)

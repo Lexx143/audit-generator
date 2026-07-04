@@ -132,7 +132,7 @@
 .auditor-avatar {
   width: 44px;
   height: 44px;
-  border-radius: 50%;
+  border-radius: 50% 50% 0 50%; /* капелька, как в отчете */
   object-fit: cover;
   flex-shrink: 0;
 }
@@ -219,6 +219,72 @@
   margin-top: 0.1rem;
   accent-color: var(--primary);
 }
+
+/* Модалка кадрирования фото аудитора */
+.crop-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 1rem;
+}
+
+.crop-modal {
+  width: 340px;
+  max-width: 95vw;
+}
+
+.crop-viewport {
+  position: relative;
+  width: 260px;
+  height: 260px;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #222;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.crop-viewport:active { cursor: grabbing; }
+
+.crop-viewport img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  pointer-events: none;
+}
+
+/* Капелька: круг с "острым" правым нижним углом, как в шаблоне отчета */
+.crop-mask {
+  position: absolute;
+  inset: 0;
+  border-radius: 50% 50% 0 50%;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.62);
+  pointer-events: none;
+}
+
+/* Футер */
+.site-footer {
+  margin-top: 3rem;
+  padding: 1.5rem 0;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-glass);
+}
+
+.site-footer a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.site-footer a:hover { text-decoration: underline; }
 
 /* ---------- Мобильные экраны ---------- */
 @media (max-width: 640px) {
