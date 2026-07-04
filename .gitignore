@@ -3,3 +3,6 @@ __pycache__/
 venv/
 .env
 backend/archive/
+backend/db/
+backend/static/
+dist/
