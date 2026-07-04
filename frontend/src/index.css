@@ -8,8 +8,20 @@
   --border-glass: rgba(255, 255, 255, 0.1);
   --text-main: #ffffff;
   --text-muted: #a0a0a0;
+  --input-bg: rgba(0, 0, 0, 0.2);
+  --title-gradient: linear-gradient(90deg, #fff, #e3474a);
   --font-main: 'Inter', sans-serif;
   --font-heading: 'Source Sans Pro', sans-serif;
+}
+
+[data-theme="light"] {
+  --bg-dark: #f0f2f5;
+  --bg-glass: rgba(255, 255, 255, 0.7);
+  --border-glass: rgba(0, 0, 0, 0.1);
+  --text-main: #1a1a1a;
+  --text-muted: #555555;
+  --input-bg: rgba(0, 0, 0, 0.04);
+  --title-gradient: linear-gradient(90deg, #333, #e3474a);
 }
 
 * {
@@ -53,7 +65,7 @@ h1, h2, h3 {
   text-align: center;
   font-size: 3rem;
   margin-bottom: 2rem;
-  background: linear-gradient(90deg, #fff, #e3474a);
+  background: var(--title-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -72,15 +84,15 @@ h1, h2, h3 {
 
 textarea, input, select {
   width: 100%;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--input-bg);
   border: 1px solid var(--border-glass);
   border-radius: 8px;
   padding: 1rem;
-  color: #fff;
+  color: var(--text-main);
   font-family: var(--font-main);
   font-size: 1rem;
   outline: none;
-  transition: border-color 0.3s;
+  transition: border-color 0.3s, background-color 0.3s, color 0.3s;
 }
 
 textarea {
@@ -94,7 +106,7 @@ textarea:focus, input:focus, select:focus {
 
 .btn {
   background: var(--primary);
-  color: #fff;
+  color: #ffffff;
   border: none;
   padding: 1rem 2rem;
   border-radius: 50px;
