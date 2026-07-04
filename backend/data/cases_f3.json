@@ -1,0 +1,27 @@
+[
+  {
+    "title": "SMTP HELO и PTR",
+    "vulnerability": "N/A",
+    "risk": "N/A"
+  },
+  {
+    "title": "Отсутствие политики DMARC",
+    "vulnerability": "N/A",
+    "risk": "N/A"
+  },
+  {
+    "title": "Отсутствие SSL для веб-почты",
+    "vulnerability": "N/A",
+    "risk": "N/A"
+  },
+  {
+    "title": "Совмещение ролей (Файлообмен и Медиа-центр)",
+    "vulnerability": "N/A",
+    "risk": "N/A"
+  },
+  {
+    "title": "Ограничение длины путей на сетевом диске",
+    "vulnerability": "N/A",
+    "risk": "N/A"
+  }
+]

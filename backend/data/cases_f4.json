@@ -1,0 +1,27 @@
+[
+  {
+    "title": "почта (HELO/PTR)",
+    "vulnerability": "N/A",
+    "risk": "N/A"
+  },
+  {
+    "title": "почта (DMARC)",
+    "vulnerability": "N/A",
+    "risk": "N/A"
+  },
+  {
+    "title": "почта (SSL)",
+    "vulnerability": "N/A",
+    "risk": "N/A"
+  },
+  {
+    "title": "домен (btm.kz)",
+    "vulnerability": "N/A",
+    "risk": "N/A"
+  },
+  {
+    "title": "сервер (файлообмен)",
+    "vulnerability": "N/A",
+    "risk": "N/A"
+  }
+]

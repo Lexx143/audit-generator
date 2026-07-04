@@ -1,80 +1,210 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import TextareaAutosize from 'react-textarea-autosize';
+import './App.css'
+
+const API = 'http://localhost:8000';
+const DRAFT_KEY = 'audit-generator-draft';
+
+const IMAGE_STYLES = [
+  { value: '3d_icon', label: '3D-иконка' },
+  { value: 'flat_vector', label: 'Плоский вектор' },
+  { value: 'isometric', label: 'Изометрия' },
+];
+
+function loadDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
 function App() {
-  const [step, setStep] = useState(1);
+  const draft = useRef(loadDraft()).current;
+
+  const [step, setStep] = useState(draft?.step || 1);
   const [loading, setLoading] = useState(false);
-  const [auditType, setAuditType] = useState('express');
-  const [formData, setFormData] = useState({
+  const [auditType, setAuditType] = useState(draft?.auditType || 'express');
+  const [formData, setFormData] = useState(draft?.formData || {
     general_data: '',
     vulnerabilities: '',
     conclusions: ''
   });
-  const [auditData, setAuditData] = useState(null);
+  const [auditData, setAuditData] = useState(draft?.auditData || null);
   const [revisionText, setRevisionText] = useState("");
   const [revising, setRevising] = useState(false);
   const [hints, setHints] = useState([]);
+  const [imageStyle, setImageStyle] = useState(draft?.imageStyle || '3d_icon');
+  const [batchProgress, setBatchProgress] = useState(null); // {done, total}
+  const [toasts, setToasts] = useState([]);
+  const [reviseCaseOpen, setReviseCaseOpen] = useState({}); // {idx: comment}
+
+  const addToast = useCallback((message, type = 'info') => {
+    const id = Date.now() + Math.random();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4500);
+  }, []);
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/hints')
+    fetch(`${API}/api/hints`)
       .then(res => res.json())
       .then(data => setHints(data.hints || []))
       .catch(err => console.error("Failed to load hints:", err));
   }, []);
 
+  // Автосохранение черновика (debounce 500мс)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const cleanAudit = auditData ? {
+        ...auditData,
+        cases: auditData.cases.map(({ imageGenerating, textRevising, ...c }) => c)
+      } : null;
+      const payload = { step, auditType, formData, auditData: cleanAudit, imageStyle };
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+      } catch {
+        // Квота localStorage — сохраняем без картинок
+        try {
+          const light = cleanAudit ? {
+            ...cleanAudit,
+            cases: cleanAudit.cases.map(({ image_b64, ...c }) => c)
+          } : null;
+          localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...payload, auditData: light }));
+        } catch { /* совсем не влезло — пропускаем */ }
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [step, auditType, formData, auditData, imageStyle]);
+
+  const resetAll = () => {
+    if (!confirm("Начать заново? Текущий черновик будет удален.")) return;
+    localStorage.removeItem(DRAFT_KEY);
+    setStep(1);
+    setFormData({ general_data: '', vulnerabilities: '', conclusions: '' });
+    setAuditData(null);
+    setRevisionText("");
+    setBatchProgress(null);
+    setReviseCaseOpen({});
+  };
+
+  const updateCase = (index, patch) => {
+    setAuditData(prev => {
+      if (!prev) return prev;
+      const cases = prev.cases.map((c, i) => i === index ? { ...c, ...patch } : c);
+      return { ...prev, cases };
+    });
+  };
+
   const handleParse = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:8000/api/parse', {
+      const res = await fetch(`${API}/api/parse`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, audit_type: auditType })
       });
       if (!res.ok) {
-        const errorText = await res.text();
-        alert("Ошибка от сервера: " + errorText);
+        addToast("Ошибка от сервера: " + (await res.text()).slice(0, 200), 'error');
         setLoading(false);
         return;
       }
       const data = await res.json();
       setAuditData(data);
       setStep(2);
+      addToast("Структура аудита готова", 'success');
     } catch (err) {
-      alert("Ошибка при парсинге: " + err);
+      addToast("Ошибка при парсинге: " + err, 'error');
     }
     setLoading(false);
   };
 
   const handleCaseChange = (index, field, value) => {
-    const newData = { ...auditData };
-    newData.cases[index][field] = value;
-    setAuditData(newData);
+    updateCase(index, { [field]: value });
   };
 
-  const handleRegenerateImage = async (index) => {
-    const caseObj = auditData.cases[index];
-    if (!caseObj.image_prompt) return;
-    
-    // Set loading state for this specific image somehow, 
-    // or just a global block
-    const newData = { ...auditData };
-    newData.cases[index].image_b64 = "loading";
-    setAuditData(newData);
-    
+  const generateImageFor = async (index, prompt) => {
+    updateCase(index, { imageGenerating: true });
     try {
-      const res = await fetch('http://localhost:8000/api/generate_image', {
+      const res = await fetch(`${API}/api/generate_image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: caseObj.image_prompt })
+        body: JSON.stringify({ prompt, style: imageStyle })
       });
-      const data = await res.json();
-      const finalData = { ...auditData };
-      finalData.cases[index].image_b64 = data.image_b64;
-      setAuditData(finalData);
+      if (res.ok) {
+        const data = await res.json();
+        updateCase(index, { image_b64: data.image_b64, imageGenerating: false });
+        return true;
+      }
+      updateCase(index, { imageGenerating: false });
+      addToast(`Кейс ${index + 1}: не удалось сгенерировать картинку`, 'error');
+      return false;
+    } catch (e) {
+      console.error(e);
+      updateCase(index, { imageGenerating: false });
+      addToast(`Кейс ${index + 1}: ошибка сети при генерации`, 'error');
+      return false;
+    }
+  };
+
+  const handleRegenerateImage = (index) => {
+    const prompt = auditData.cases[index].image_prompt;
+    return generateImageFor(index, prompt);
+  };
+
+  const handleGenerateAllImages = async () => {
+    const targets = auditData.cases
+      .map((c, i) => ({ c, i }))
+      .filter(({ c }) => !c.image_b64);
+    if (!targets.length) {
+      addToast("Все картинки уже сгенерированы");
+      return;
+    }
+    setBatchProgress({ done: 0, total: targets.length });
+    let done = 0;
+    await Promise.all(targets.map(({ c, i }) =>
+      generateImageFor(i, c.image_prompt).then(() => {
+        done += 1;
+        setBatchProgress({ done, total: targets.length });
+      })
+    ));
+    setBatchProgress(null);
+    addToast(`Готово: ${targets.length} картинок`, 'success');
+  };
+
+  const handleReviseCase = async (index) => {
+    const comment = reviseCaseOpen[index] || "";
+    updateCase(index, { textRevising: true });
+    try {
+      const res = await fetch(`${API}/api/revise_case`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          case: auditData.cases[index],
+          comment,
+          audit_type: auditType,
+          general_data: formData.general_data
+        })
+      });
+      if (!res.ok) {
+        addToast("Ошибка от сервера: " + (await res.text()).slice(0, 200), 'error');
+        updateCase(index, { textRevising: false });
+        return;
+      }
+      const newCase = await res.json();
+      setAuditData(prev => {
+        const cases = prev.cases.map((c, i) => i === index ? { ...newCase, imageGenerating: c.imageGenerating } : c);
+        return { ...prev, cases };
+      });
+      setReviseCaseOpen(prev => {
+        const next = { ...prev };
+        delete next[index];
+        return next;
+      });
+      addToast(`Кейс ${index + 1} переписан`, 'success');
     } catch (err) {
-      alert("Ошибка генерации картинки: " + err);
-      const finalData = { ...auditData };
-      finalData.cases[index].image_b64 = null;
-      setAuditData(finalData);
+      addToast("Ошибка: " + err, 'error');
+      updateCase(index, { textRevising: false });
     }
   };
 
@@ -82,26 +212,26 @@ function App() {
     if (!revisionText.trim()) return;
     setRevising(true);
     try {
-      const res = await fetch('http://localhost:8000/api/revise', {
+      const res = await fetch(`${API}/api/revise`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          current_data: auditData, 
+        body: JSON.stringify({
+          current_data: auditData,
           revision_prompt: revisionText,
           audit_type: auditType
         })
       });
       if (!res.ok) {
-        const errorText = await res.text();
-        alert("Ошибка от сервера: " + errorText);
+        addToast("Ошибка от сервера: " + (await res.text()).slice(0, 200), 'error');
         setRevising(false);
         return;
       }
       const data = await res.json();
       setAuditData(data);
       setRevisionText("");
+      addToast("Правки применены", 'success');
     } catch (err) {
-      alert("Ошибка при применении правок: " + err);
+      addToast("Ошибка при применении правок: " + err, 'error');
     }
     setRevising(false);
   };
@@ -109,15 +239,14 @@ function App() {
   const handleGeneratePptx = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:8000/api/generate_pptx', {
+      const res = await fetch(`${API}/api/generate_pptx`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: auditData })
+        body: JSON.stringify({ data: auditData, audit_type: auditType })
       });
-      
+
       if (!res.ok) {
-        const err = await res.text();
-        alert("Ошибка при генерации PPTX: " + err);
+        addToast("Ошибка при генерации PPTX: " + (await res.text()).slice(0, 200), 'error');
         setLoading(false);
         return;
       }
@@ -131,10 +260,10 @@ function App() {
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
-      
-      alert("Отчет успешно скачан и сохранен в базу знаний ИИ!");
+
+      addToast("Отчет скачан и сохранен в базу знаний ИИ", 'success');
     } catch (err) {
-      alert("Ошибка сети при скачивании: " + err);
+      addToast("Ошибка сети при скачивании: " + err, 'error');
     }
     setLoading(false);
   };
@@ -142,7 +271,7 @@ function App() {
   return (
     <div className="container">
       <h1 className="title">Audit Generator AI</h1>
-      
+
       {step === 1 && (
         <div className="glass-panel">
           <div className="flex-between" style={{marginBottom: '2rem'}}>
@@ -158,7 +287,7 @@ function App() {
 
           <div className="input-group">
             <label>Общие данные о клиенте (Название, адрес, сфера, размер штата)</label>
-            <textarea 
+            <TextareaAutosize
               value={formData.general_data}
               onChange={e => setFormData({...formData, general_data: e.target.value})}
               placeholder="Например: ТОО Ромашка, 100 сотрудников..."
@@ -167,19 +296,19 @@ function App() {
 
           <div className="input-group">
             <label>Выявленные уязвимости и проблемы</label>
-            <textarea 
+            <TextareaAutosize
               value={formData.vulnerabilities}
               onChange={e => setFormData({...formData, vulnerabilities: e.target.value})}
               placeholder="Что нашли на объекте? (например: открыт RDP, пиратская винда, бэкапов нет)"
             />
             <div style={{marginTop: '0.5rem'}}>
-              <select 
-                className="input-field" 
-                style={{padding: '0.5rem', backgroundColor: 'var(--bg-card)'}}
+              <select
+                className="input-field"
+                style={{padding: '0.5rem'}}
                 onChange={(e) => {
                   if (e.target.value) {
                     setFormData({
-                      ...formData, 
+                      ...formData,
                       vulnerabilities: formData.vulnerabilities + (formData.vulnerabilities ? ', ' : '') + e.target.value
                     });
                     e.target.value = "";
@@ -194,32 +323,53 @@ function App() {
 
           <div className="input-group">
             <label>Заключение / Выводы</label>
-            <textarea 
+            <TextareaAutosize
               value={formData.conclusions}
               onChange={e => setFormData({...formData, conclusions: e.target.value})}
               placeholder="Итоговые предложения..."
             />
           </div>
 
-          <button className="btn" onClick={handleParse} disabled={loading}>
-            {loading ? <div className="loader"></div> : "Сгенерировать структуру"}
-          </button>
+          <div className="flex-between">
+            <button className="btn" onClick={handleParse} disabled={loading}>
+              {loading ? <div className="loader"></div> : "Сгенерировать структуру"}
+            </button>
+            {(auditData || formData.general_data || formData.vulnerabilities) && (
+              <button className="btn-small" onClick={resetAll}>Очистить черновик</button>
+            )}
+          </div>
+          {auditData && (
+            <p style={{marginTop: '1rem', color: 'var(--text-muted)', fontSize: '0.9rem'}}>
+              Есть сохраненный черновик структуры — <a href="#" style={{color: 'var(--primary)'}} onClick={e => { e.preventDefault(); setStep(2); }}>вернуться к нему</a>.
+            </p>
+          )}
         </div>
       )}
 
       {step === 2 && auditData && (
-        <div className="glass-panel">
+        <div className="result-container" style={{animation: 'fadeIn 0.5s'}}>
+          <datalist id="category-options">
+            <option value="I. Серверная инфраструктура" />
+            <option value="II. Сеть и ИТ-поддержка" />
+            <option value="III. Безопасность" />
+            <option value="IV. 1C" />
+            <option value="V. Видеонаблюдение и СКУД" />
+          </datalist>
+
           <div className="flex-between" style={{marginBottom: '2rem'}}>
             <h2>Предпросмотр: {auditData.client_name}</h2>
-            <button className="btn" onClick={() => setStep(1)} style={{background: 'transparent', border: '1px solid var(--border-glass)'}}>Назад</button>
+            <div style={{display: 'flex', gap: '0.5rem'}}>
+              <button className="btn" onClick={() => setStep(1)} style={{background: 'transparent', border: '1px solid var(--border-glass)'}}>Назад</button>
+              <button className="btn-small" onClick={resetAll}>Начать заново</button>
+            </div>
           </div>
 
           <div className="input-group">
             <label>Текст обзора (слайд 2)</label>
-            <textarea 
+            <TextareaAutosize
               value={auditData.review}
               onChange={e => setAuditData({...auditData, review: e.target.value})}
-              style={{minHeight: '80px'}}
+              minRows={4}
             />
           </div>
 
@@ -233,50 +383,95 @@ function App() {
                     {c.priority}
                   </span>
                 </div>
-                
-                <input value={c.title} onChange={e => handleCaseChange(i, 'title', e.target.value)} />
-                <select value={c.category} onChange={e => handleCaseChange(i, 'category', e.target.value)}>
-                  <option value="I. Серверная инфраструктура">I. Серверная инфраструктура</option>
-                  <option value="II. Сеть и ИТ-поддержка">II. Сеть и ИТ-поддержка</option>
-                </select>
-                
-                <label style={{fontSize: '0.85rem'}}>Уязвимость:</label>
-                <textarea value={c.vulnerability} onChange={e => handleCaseChange(i, 'vulnerability', e.target.value)} style={{minHeight: '60px'}}/>
-                
-                <label style={{fontSize: '0.85rem'}}>Риски:</label>
-                <textarea value={c.risk} onChange={e => handleCaseChange(i, 'risk', e.target.value)} style={{minHeight: '60px'}}/>
-                
+
+                <TextareaAutosize value={c.title} onChange={e => handleCaseChange(i, 'title', e.target.value)} minRows={2} />
+                <input
+                  list="category-options"
+                  value={c.category}
+                  onChange={e => handleCaseChange(i, 'category', e.target.value)}
+                  placeholder="Введите или выберите раздел..."
+                  style={{width: '100%', marginBottom: '1rem'}}
+                />
+
+                <div>
+                  <label style={{fontSize: '0.85rem'}}>Уязвимость:</label>
+                  <TextareaAutosize value={c.vulnerability} onChange={e => handleCaseChange(i, 'vulnerability', e.target.value)} minRows={3}/>
+                </div>
+
+                <div>
+                  <label style={{fontSize: '0.85rem'}}>Риски:</label>
+                  <TextareaAutosize value={c.risk} onChange={e => handleCaseChange(i, 'risk', e.target.value)} minRows={3}/>
+                </div>
+
                 {auditType === 'full' && (
-                  <>
+                  <div>
                     <label style={{fontSize: '0.85rem'}}>Рекомендации:</label>
-                    <textarea value={c.recommendation || ''} onChange={e => handleCaseChange(i, 'recommendation', e.target.value)} style={{minHeight: '60px'}}/>
-                  </>
+                    <TextareaAutosize value={c.recommendation || ''} onChange={e => handleCaseChange(i, 'recommendation', e.target.value)} minRows={3}/>
+                  </div>
                 )}
 
+                <div className="case-tools">
+                  {c.textRevising ? (
+                    <div className="loader" style={{width: 18, height: 18}}></div>
+                  ) : reviseCaseOpen[i] !== undefined ? null : (
+                    <button className="btn-small" onClick={() => setReviseCaseOpen(prev => ({...prev, [i]: ""}))}>
+                      🪄 Улучшить текст ИИ
+                    </button>
+                  )}
+                </div>
+
+                {reviseCaseOpen[i] !== undefined && !c.textRevising && (
+                  <div className="revise-case-box">
+                    <TextareaAutosize
+                      value={reviseCaseOpen[i]}
+                      onChange={e => setReviseCaseOpen(prev => ({...prev, [i]: e.target.value}))}
+                      placeholder="Что улучшить? (пусто = просто переписать качественнее)"
+                      minRows={2}
+                      style={{flex: 1}}
+                    />
+                    <button className="btn-small" onClick={() => handleReviseCase(i)}>➤</button>
+                    <button className="btn-small" onClick={() => setReviseCaseOpen(prev => {
+                      const next = {...prev}; delete next[i]; return next;
+                    })}>✕</button>
+                  </div>
+                )}
+
+                <div>
+                  <label style={{fontSize: '0.85rem'}}>Промпт картинки (англ.):</label>
+                  <TextareaAutosize
+                    className="image-prompt-input"
+                    value={c.image_prompt}
+                    onChange={e => handleCaseChange(i, 'image_prompt', e.target.value)}
+                    minRows={1}
+                  />
+                </div>
+
                 <div className="case-image-wrap">
-                  {c.image_b64 === 'loading' ? (
-                    <div style={{display:'flex',height:'100%',alignItems:'center',justifyContent:'center'}}>
+                  {c.imageGenerating ? (
+                    <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
                       <div className="loader"></div>
                     </div>
                   ) : c.image_b64 ? (
                     <img src={c.image_b64} alt="Case visual" />
                   ) : (
-                    <div style={{display:'flex',height:'100%',alignItems:'center',justifyContent:'center', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem'}}>
-                      Нет картинки.<br/>Промпт: {c.image_prompt}
+                    <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem'}}>
+                      Нет картинки
                     </div>
                   )}
-                  
-                  <div className="case-image-overlay">
-                    <button className="btn" style={{padding: '0.5rem 1rem', fontSize: '0.9rem'}} onClick={() => handleRegenerateImage(i)}>
-                      {c.image_b64 ? "Перегенерировать" : "Сгенерировать"}
-                    </button>
-                  </div>
+
+                  {!c.imageGenerating && (
+                    <div className="case-image-overlay">
+                      <button className="btn" style={{padding: '0.5rem 1rem', fontSize: '0.9rem'}} onClick={() => handleRegenerateImage(i)}>
+                        {c.image_b64 ? "Перегенерировать" : "Сгенерировать"}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
               </div>
             ))}
           </div>
-          
+
           <h3 style={{marginTop: '2rem'}}>Выводы (последний слайд)</h3>
           {auditData.conclusions.map((conc, i) => (
             <input key={i} value={conc} style={{marginBottom: '0.5rem'}} onChange={e => {
@@ -292,11 +487,11 @@ function App() {
               Напишите, что нужно изменить в макете (например: "Удали кейс про антивирусы и добавь кейс про плохой интернет", "Сделай описания рисков более строгими").
             </p>
             <div className="input-group">
-              <textarea 
+              <TextareaAutosize
                 value={revisionText}
                 onChange={e => setRevisionText(e.target.value)}
                 placeholder="Ваши комментарии и пожелания для ИИ..."
-                style={{minHeight: '100px'}}
+                minRows={5}
               />
             </div>
             <button className="btn" onClick={handleRevise} disabled={revising} style={{fontSize: '1rem'}}>
@@ -305,12 +500,39 @@ function App() {
           </div>
 
           <div style={{marginTop: '3rem', textAlign: 'center'}}>
-            <button className="btn" onClick={handleGeneratePptx} disabled={loading || revising} style={{fontSize: '1.25rem', padding: '1rem 3rem'}}>
-              {loading ? <div className="loader"></div> : "💾 Скачать PPTX Отчет"}
-            </button>
+            <div style={{marginBottom: '1rem'}}>
+              <span className="style-select-wrap">
+                <label style={{fontSize: '0.9rem'}}>Стиль картинок:</label>
+                <select value={imageStyle} onChange={e => setImageStyle(e.target.value)}>
+                  {IMAGE_STYLES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+              </span>
+              <button className="btn" onClick={handleGenerateAllImages} disabled={loading || revising || !!batchProgress} style={{fontSize: '1rem', padding: '1rem 2rem'}}>
+                {batchProgress ? `Генерация ${batchProgress.done}/${batchProgress.total}...` : "Сгенерировать все картинки"}
+              </button>
+            </div>
+            {batchProgress && (
+              <div className="progress-wrap">
+                <div className="progress-bar">
+                  <div className="progress-bar-fill" style={{width: `${(batchProgress.done / batchProgress.total) * 100}%`}}></div>
+                </div>
+                <span style={{fontSize: '0.9rem', color: 'var(--text-muted)'}}>{batchProgress.done}/{batchProgress.total}</span>
+              </div>
+            )}
+            <div style={{marginTop: '1rem'}}>
+              <button className="btn" onClick={handleGeneratePptx} disabled={loading || revising} style={{fontSize: '1.25rem', padding: '1rem 3rem'}}>
+                {loading ? <div className="loader"></div> : "💾 Скачать PPTX Отчет"}
+              </button>
+            </div>
           </div>
         </div>
       )}
+
+      <div className="toast-container">
+        {toasts.map(t => (
+          <div key={t.id} className={`toast ${t.type}`}>{t.message}</div>
+        ))}
+      </div>
     </div>
   )
 }
