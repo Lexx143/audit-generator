@@ -326,6 +326,30 @@ function App() {
     updateCase(index, { [field]: value });
   };
 
+  const handleDeleteCase = (index) => {
+    if (auditData.cases.length <= 1) {
+      addToast("Нельзя удалить последний кейс", 'error');
+      return;
+    }
+    if (!confirm(`Удалить кейс ${index + 1} «${auditData.cases[index].title}»?`)) return;
+    setAuditData(prev => ({ ...prev, cases: prev.cases.filter((_, i) => i !== index) }));
+  };
+
+  const handleAddCase = () => {
+    if (auditData.cases.length >= 5) {
+      addToast("Максимум 5 кейсов — ограничение шаблона отчета", 'error');
+      return;
+    }
+    setAuditData(prev => ({
+      ...prev,
+      cases: [...prev.cases, {
+        title: 'Новый кейс', vulnerability: '', risk: '', recommendation: '',
+        priority: 'ТРЕТИЙ ПРИОРИТЕТ', category: categories[0] || '',
+        image_prompt: '', image_b64: null,
+      }]
+    }));
+  };
+
   const generateImageFor = async (index, prompt) => {
     updateCase(index, { imageGenerating: true });
     try {
@@ -646,15 +670,23 @@ function App() {
             />
           </div>
 
-          <h3>Кейсы ({auditData.cases.length})</h3>
+          <div className="flex-between" style={{marginTop: '1rem'}}>
+            <h3>Кейсы ({auditData.cases.length})</h3>
+            {auditData.cases.length < 5 && (
+              <button className="btn-small" onClick={handleAddCase}>＋ Добавить кейс</button>
+            )}
+          </div>
           <div className="cases-grid">
             {auditData.cases.map((c, i) => (
               <div key={i} className="glass-panel case-card" style={{padding: '1.5rem'}}>
                 <div className="flex-between">
                   <h4>Кейс {i+1}</h4>
-                  <span className={`badge ${c.priority === 'ПЕРВЫЙ ПРИОРИТЕТ' ? 'red' : c.priority === 'ВТОРОЙ ПРИОРИТЕТ' ? 'orange' : 'cyan'}`}>
-                    {c.priority}
-                  </span>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                    <span className={`badge ${c.priority === 'ПЕРВЫЙ ПРИОРИТЕТ' ? 'red' : c.priority === 'ВТОРОЙ ПРИОРИТЕТ' ? 'orange' : 'cyan'}`}>
+                      {c.priority}
+                    </span>
+                    <button className="btn-small" title="Удалить кейс" onClick={() => handleDeleteCase(i)}>✕</button>
+                  </div>
                 </div>
 
                 <TextareaAutosize value={c.title} onChange={e => handleCaseChange(i, 'title', e.target.value)} minRows={2} />

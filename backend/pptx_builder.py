@@ -487,7 +487,13 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
             if hasattr(s, 'text') and s.text and 'Вариант 1' in s.text:
                 perfect_replace(s, conc_text)
 
-        for i in sorted([15, 14, 13, 12], reverse=True):
+        # Неиспользуемые слайды: варианты-предложения из шаблона (12-15),
+        # слайды лишних кейсов и разделитель второй секции, если она пуста
+        to_delete = {12, 13, 14, 15}
+        to_delete.update(case_slides[len(data.cases):])
+        if len(data.cases) <= 3:
+            to_delete.add(9)
+        for i in sorted(to_delete, reverse=True):
             rId = prs.slides._sldIdLst[i].rId
             prs.part.drop_rel(rId)
             del prs.slides._sldIdLst[i]
