@@ -146,4 +146,5 @@ async def revise_single_case(req: ReviseCaseRequest) -> Case:
     )
     # image_b64 через LLM не гоняем — возвращаем исходную картинку
     result.image_b64 = req.case.image_b64
+    result.image_reusable = req.case.image_reusable
     return result

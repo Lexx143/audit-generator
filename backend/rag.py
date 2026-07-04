@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import os
 import json
@@ -30,6 +31,13 @@ case_examples_collection = chroma_client.get_or_create_collection(
 hints_collection = chroma_client.get_or_create_collection(
     name="audit_hints", embedding_function=openai_ef
 )
+# Библиотека картинок кейсов: документ = тема кейса, в метаданных путь к файлу
+images_collection = chroma_client.get_or_create_collection(
+    name="case_images", embedding_function=openai_ef
+)
+
+IMAGES_DIR = os.path.join(config.CHROMA_PATH, "images")
+AUDITORS_FILE = os.path.join(config.CHROMA_PATH, "auditors.json")
 
 HINT_CATEGORIES = [
     "I. Серверная инфраструктура",
@@ -126,6 +134,74 @@ def add_hint(text: str, category: str = "VI. Прочее") -> bool:
     return True
 
 
+def _image_doc(title: str, vulnerability: str) -> str:
+    return f"{title}. {vulnerability or ''}".strip()
+
+
+def save_case_image(title: str, vulnerability: str, image_b64: str):
+    """Сохраняет картинку кейса в библиотеку (файл + семантический индекс)."""
+    if not image_b64 or not image_b64.startswith("data:image"):
+        return
+    header, b64_payload = image_b64.split(",", 1)
+    raw = base64.b64decode(b64_payload)
+    ext = "png" if "png" in header else "jpg"
+    img_id = hashlib.md5(raw).hexdigest()
+
+    os.makedirs(IMAGES_DIR, exist_ok=True)
+    path = os.path.join(IMAGES_DIR, f"{img_id}.{ext}")
+    if not os.path.exists(path):
+        with open(path, "wb") as f:
+            f.write(raw)
+
+    images_collection.upsert(
+        documents=[_image_doc(title, vulnerability)],
+        ids=[img_id],
+        metadatas=[{"file": path, "mime": f"image/{'png' if ext == 'png' else 'jpeg'}"}],
+    )
+
+
+def find_similar_images(title: str, vulnerability: str, n: int = 6) -> list[dict]:
+    """Возвращает картинки из библиотеки для похожих кейсов: [{id, b64}]."""
+    if images_collection.count() == 0:
+        return []
+    res = images_collection.query(
+        query_texts=[_image_doc(title, vulnerability)],
+        n_results=min(n, images_collection.count()),
+    )
+    out = []
+    for img_id, meta in zip(res["ids"][0], res["metadatas"][0]):
+        path = meta.get("file")
+        if not path or not os.path.exists(path):
+            continue
+        with open(path, "rb") as f:
+            b64_payload = base64.b64encode(f.read()).decode("utf-8")
+        out.append({"id": img_id, "b64": f"data:{meta.get('mime', 'image/jpeg')};base64,{b64_payload}"})
+    return out
+
+
+def get_auditors() -> list[dict]:
+    if os.path.exists(AUDITORS_FILE):
+        with open(AUDITORS_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+
+def save_auditor(name: str, photo_b64: str | None) -> dict:
+    auditors = get_auditors()
+    auditor = {
+        "id": hashlib.md5(name.strip().lower().encode("utf-8")).hexdigest()[:12],
+        "name": name.strip(),
+        "photo_b64": photo_b64,
+    }
+    auditors = [a for a in auditors if a["id"] != auditor["id"]]
+    auditors.append(auditor)
+    auditors.sort(key=lambda a: a["name"].lower())
+    os.makedirs(config.CHROMA_PATH, exist_ok=True)
+    with open(AUDITORS_FILE, "w") as f:
+        json.dump(auditors, f, ensure_ascii=False, indent=2)
+    return auditor
+
+
 def save_report_to_memory(data):
     """Сохраняет кейсы и выводы сгенерированного отчета в базу знаний RAG."""
     for case in data.cases:
@@ -149,6 +225,14 @@ def save_report_to_memory(data):
         )
 
         add_hint(case.title, case.category)
+
+        # Иллюстрации (сгенерированные или помеченные как переиспользуемые)
+        # сохраняем в библиотеку; фотографии объектов (image_reusable=False) — нет
+        if case.image_b64 and case.image_reusable:
+            try:
+                save_case_image(case.title, case.vulnerability, case.image_b64)
+            except Exception as e:
+                print(f"Failed to save case image: {e}")
 
     for conc in data.conclusions:
         conclusions_collection.upsert(documents=[conc], ids=[str(uuid.uuid4())])

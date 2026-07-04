@@ -79,6 +79,25 @@ def _placeholder_b64(seed_text: str) -> str:
     return f"data:image/png;base64,{b64}"
 
 
+def crop_photo_to_circle(photo_b64: str, size: int = 512) -> str:
+    """Квадратный кроп по центру + круглая маска — как фото аудитора в шаблоне."""
+    from PIL import Image, ImageDraw, ImageOps
+
+    raw = base64.b64decode(photo_b64.split(",", 1)[-1])
+    img = Image.open(io.BytesIO(raw)).convert("RGB")
+    img = ImageOps.exif_transpose(img)
+    img = ImageOps.fit(img, (size, size), Image.LANCZOS)
+
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, size, size), fill=255)
+    out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    out.paste(img, (0, 0), mask)
+
+    buf = io.BytesIO()
+    out.save(buf, format="PNG")
+    return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}"
+
+
 async def generate_image_b64(prompt: str, style: str = "3d_icon") -> str:
     """gpt-image-2 -> Pollinations -> локальный плейсхолдер."""
     full_prompt = build_full_prompt(prompt, style)

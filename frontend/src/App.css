@@ -122,6 +122,93 @@
   cursor: pointer;
 }
 
+/* Аудитор */
+.auditor-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.auditor-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.auditor-new {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.auditor-new input:not([type="file"]) {
+  flex: 1;
+  min-width: 180px;
+}
+
+.auditor-photo-btn { display: inline-flex; align-items: center; gap: 0.3rem; }
+
+/* Картинки кейса: стрелки перелистывания библиотеки */
+.image-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.suggestion-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.suggestion-arrow.left { left: 0.5rem; }
+.suggestion-arrow.right { right: 0.5rem; }
+.suggestion-arrow:hover { background: rgba(0, 0, 0, 0.8); }
+
+.suggestion-counter {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 50px;
+  z-index: 2;
+  white-space: nowrap;
+}
+
+.reuse-checkbox {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.reuse-checkbox input[type="checkbox"] {
+  width: auto;
+  margin-top: 0.1rem;
+  accent-color: var(--primary);
+}
+
 /* ---------- Мобильные экраны ---------- */
 @media (max-width: 640px) {
   /* Тосты не должны перекрывать пол-экрана */

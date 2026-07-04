@@ -42,6 +42,9 @@ function App() {
   const [toasts, setToasts] = useState([]);
   const [reviseCaseOpen, setReviseCaseOpen] = useState({}); // {idx: comment}
   const [saveToMemory, setSaveToMemory] = useState(false);
+  const [auditors, setAuditors] = useState([]);
+  const [auditorId, setAuditorId] = useState(draft?.auditorId || '');
+  const [newAuditor, setNewAuditor] = useState(null); // {name, photo_b64} | null
   const [theme, setTheme] = useState(localStorage.getItem('audit-theme') || 'dark');
 
   useEffect(() => {
@@ -64,16 +67,115 @@ function App() {
       .then(res => res.json())
       .then(data => setHints(data.hints || []))
       .catch(err => console.error("Failed to load hints:", err));
+    fetch(`${API}/api/auditors`)
+      .then(res => res.json())
+      .then(data => setAuditors(data.auditors || []))
+      .catch(err => console.error("Failed to load auditors:", err));
   }, []);
+
+  // Файл -> сжатый dataURL (максимум 1024px по большей стороне)
+  const fileToDataUrl = (file, maxSide = 1024) => new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+
+  const handleSaveAuditor = async () => {
+    if (!newAuditor?.name?.trim()) {
+      addToast("Укажите имя аудитора", 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/api/auditors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newAuditor.name, photo_b64: newAuditor.photo_b64 || null })
+      });
+      if (!res.ok) {
+        addToast("Не удалось сохранить аудитора: " + (await res.text()).slice(0, 150), 'error');
+        return;
+      }
+      const saved = await res.json();
+      setAuditors(prev => [...prev.filter(a => a.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name)));
+      setAuditorId(saved.id);
+      setNewAuditor(null);
+      addToast(`Аудитор «${saved.name}» сохранен`, 'success');
+    } catch (e) {
+      addToast("Ошибка сети: " + e, 'error');
+    }
+  };
+
+  // Подбор картинок из библиотеки для похожего кейса
+  const loadSuggestionsFor = async (caseObj, index, applyFirst) => {
+    try {
+      const res = await fetch(`${API}/api/image_suggestions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: caseObj.title, vulnerability: caseObj.vulnerability, n: 6 })
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const imgs = (data.images || []).map(x => x.b64);
+      if (!imgs.length) return;
+      setAuditData(prev => {
+        if (!prev || !prev.cases[index]) return prev;
+        const cases = prev.cases.map((c, i) => {
+          if (i !== index) return c;
+          const patch = { ...c, suggestions: imgs, suggIdx: 0 };
+          if (applyFirst && !c.image_b64) {
+            patch.image_b64 = imgs[0];
+            patch.image_reusable = true;
+            patch.image_source = 'library';
+          }
+          return patch;
+        });
+        return { ...prev, cases };
+      });
+    } catch (e) {
+      console.error("suggestions failed:", e);
+    }
+  };
+
+  const cycleSuggestion = (index, dir) => {
+    setAuditData(prev => {
+      const cases = prev.cases.map((c, i) => {
+        if (i !== index || !c.suggestions?.length) return c;
+        const idx = ((c.suggIdx ?? 0) + dir + c.suggestions.length) % c.suggestions.length;
+        return { ...c, suggIdx: idx, image_b64: c.suggestions[idx], image_reusable: true, image_source: 'library' };
+      });
+      return { ...prev, cases };
+    });
+  };
+
+  const handleUploadImage = async (index, file) => {
+    if (!file) return;
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      updateCase(index, { image_b64: dataUrl, image_source: 'uploaded', image_reusable: false });
+      addToast(`Кейс ${index + 1}: картинка загружена`, 'success');
+    } catch (e) {
+      addToast("Не удалось прочитать файл: " + e, 'error');
+    }
+  };
 
   // Автосохранение черновика (debounce 500мс)
   useEffect(() => {
     const t = setTimeout(() => {
       const cleanAudit = auditData ? {
         ...auditData,
-        cases: auditData.cases.map(({ imageGenerating, textRevising, ...c }) => c)
+        cases: auditData.cases.map(({ imageGenerating, textRevising, suggestions, suggIdx, ...c }) => c)
       } : null;
-      const payload = { step, auditType, formData, auditData: cleanAudit, imageStyle };
+      const payload = { step, auditType, formData, auditData: cleanAudit, imageStyle, auditorId };
       try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
       } catch {
@@ -88,7 +190,7 @@ function App() {
       }
     }, 500);
     return () => clearTimeout(t);
-  }, [step, auditType, formData, auditData, imageStyle]);
+  }, [step, auditType, formData, auditData, imageStyle, auditorId]);
 
   const resetAll = () => {
     if (!confirm("Начать заново? Текущий черновик будет удален.")) return;
@@ -126,6 +228,8 @@ function App() {
       setAuditData(data);
       setStep(2);
       addToast("Структура аудита готова", 'success');
+      // Подтягиваем похожие картинки из библиотеки для каждого кейса
+      data.cases.forEach((c, i) => loadSuggestionsFor(c, i, true));
     } catch (err) {
       addToast("Ошибка при парсинге: " + err, 'error');
     }
@@ -146,7 +250,7 @@ function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        updateCase(index, { image_b64: data.image_b64, imageGenerating: false });
+        updateCase(index, { image_b64: data.image_b64, imageGenerating: false, image_reusable: true, image_source: 'generated' });
         return true;
       }
       updateCase(index, { imageGenerating: false });
@@ -255,7 +359,15 @@ function App() {
       const res = await fetch(`${API}/api/generate_pptx`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: auditData, audit_type: auditType, save_to_memory: saveToMemory })
+        body: JSON.stringify({
+          data: {
+            ...auditData,
+            cases: auditData.cases.map(({ suggestions, suggIdx, imageGenerating, textRevising, image_source, ...c }) => c)
+          },
+          audit_type: auditType,
+          save_to_memory: saveToMemory,
+          auditor: auditors.find(a => a.id === auditorId) || null
+        })
       });
 
       if (!res.ok) {
@@ -356,6 +468,61 @@ function App() {
               onChange={e => setFormData({...formData, conclusions: e.target.value})}
               placeholder="Итоговые предложения..."
             />
+          </div>
+
+          <div className="input-group">
+            <label>Кто делает аудит (имя и фото попадут в отчет)</label>
+            <div className="auditor-row">
+              {auditors.find(a => a.id === auditorId)?.photo_b64 && (
+                <img className="auditor-avatar" src={auditors.find(a => a.id === auditorId).photo_b64} alt="" />
+              )}
+              <select
+                value={newAuditor ? '__new__' : auditorId}
+                onChange={e => {
+                  if (e.target.value === '__new__') {
+                    setNewAuditor({ name: '', photo_b64: null });
+                  } else {
+                    setNewAuditor(null);
+                    setAuditorId(e.target.value);
+                  }
+                }}
+              >
+                <option value="">— не указывать —</option>
+                {auditors.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                <option value="__new__">+ Добавить нового аудитора</option>
+              </select>
+            </div>
+
+            {newAuditor && (
+              <div className="auditor-new">
+                <input
+                  placeholder="Фамилия Имя"
+                  value={newAuditor.name}
+                  onChange={e => setNewAuditor({ ...newAuditor, name: e.target.value })}
+                />
+                <label className="btn-small auditor-photo-btn">
+                  {newAuditor.photo_b64 ? "✓ Фото выбрано" : "📷 Фото"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={async e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        const dataUrl = await fileToDataUrl(file, 800);
+                        setNewAuditor(prev => ({ ...prev, photo_b64: dataUrl }));
+                      } catch {
+                        addToast("Не удалось прочитать фото", 'error');
+                      }
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                <button className="btn-small" onClick={handleSaveAuditor}>Сохранить</button>
+                <button className="btn-small" onClick={() => setNewAuditor(null)}>✕</button>
+              </div>
+            )}
           </div>
 
           <div className="flex-between">
@@ -489,12 +656,40 @@ function App() {
 
                   {!c.imageGenerating && (
                     <div className="case-image-overlay">
-                      <button className="btn" style={{padding: '0.5rem 1rem', fontSize: '0.9rem'}} onClick={() => handleRegenerateImage(i)}>
-                        {c.image_b64 ? "Перегенерировать" : "Сгенерировать"}
-                      </button>
+                      <div className="image-actions">
+                        <button className="btn" style={{padding: '0.5rem 1rem', fontSize: '0.9rem'}} onClick={() => handleRegenerateImage(i)}>
+                          {c.image_b64 ? "🎨 Сгенерировать" : "Сгенерировать"}
+                        </button>
+                        <label className="btn" style={{padding: '0.5rem 1rem', fontSize: '0.9rem', background: 'var(--bg-dark)'}}>
+                          📁 Загрузить
+                          <input type="file" accept="image/*" hidden onChange={e => {
+                            handleUploadImage(i, e.target.files?.[0]);
+                            e.target.value = "";
+                          }} />
+                        </label>
+                      </div>
                     </div>
                   )}
+
+                  {!c.imageGenerating && c.suggestions?.length > 1 && c.image_source === 'library' && (
+                    <>
+                      <button className="suggestion-arrow left" onClick={() => cycleSuggestion(i, -1)}>‹</button>
+                      <button className="suggestion-arrow right" onClick={() => cycleSuggestion(i, 1)}>›</button>
+                      <span className="suggestion-counter">{(c.suggIdx ?? 0) + 1}/{c.suggestions.length} из библиотеки</span>
+                    </>
+                  )}
                 </div>
+
+                {c.image_source === 'uploaded' && (
+                  <label className="reuse-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={!!c.image_reusable}
+                      onChange={e => handleCaseChange(i, 'image_reusable', e.target.checked)}
+                    />
+                    <span>Это иллюстрация — сохранить в библиотеку для будущих аудитов (фотографии объектов не сохраняем)</span>
+                  </label>
+                )}
 
               </div>
             ))}

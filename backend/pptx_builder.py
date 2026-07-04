@@ -156,8 +156,14 @@ def _image_md5(shape):
         return None
 
 
-def remove_personal_marks(prs):
-    """Убирает фото аудитора и внутренний номер (вн. 162) из отчета."""
+def remove_personal_marks(prs, auditor=None):
+    """Заменяет данные аудитора из шаблона на выбранного аудитора
+    (или убирает их совсем, если аудитор не указан)."""
+    auditor_name = (auditor.name.strip() if auditor and auditor.name else None)
+    photo_bytes = None
+    if auditor and auditor.photo_b64:
+        photo_bytes = base64.b64decode(auditor.photo_b64.split(",", 1)[-1])
+
     title_slide = prs.slides[0]
 
     # Фото на титуле — картинка в нижней трети слайда (лого сидит вверху)
@@ -165,7 +171,10 @@ def remove_personal_marks(prs):
     for s in list(title_slide.shapes):
         if s.shape_type == MSO_SHAPE_TYPE.PICTURE and s.top and s.top > prs.slide_height * 0.6:
             photo_md5 = _image_md5(s)
+            geom = (s.left, s.top, s.width, s.height)
             _delete_shape(s)
+            if photo_bytes:
+                title_slide.shapes.add_picture(io.BytesIO(photo_bytes), *geom)
 
     # То же фото на других слайдах (в т.ч. picture placeholder на слайде "Ревью")
     if photo_md5:
@@ -173,7 +182,10 @@ def remove_personal_marks(prs):
             for s in list(slide.shapes):
                 if s.shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.PLACEHOLDER):
                     if _image_md5(s) == photo_md5:
+                        geom = (s.left, s.top, s.width, s.height)
                         _delete_shape(s)
+                        if photo_bytes:
+                            slide.shapes.add_picture(io.BytesIO(photo_bytes), *geom)
 
     # Внутренний номер: "+7 ... вн. 162" -> оставляем только основной номер
     for slide in prs.slides:
@@ -188,8 +200,19 @@ def remove_personal_marks(prs):
     # Блок "Отчет составил <ФИО, должность, личный телефон>"
     for slide in prs.slides:
         for s in list(slide.shapes):
-            if hasattr(s, 'text') and s.text and 'Отчет составил' in s.text:
+            if not (hasattr(s, 'text') and s.text and 'Отчет составил' in s.text):
+                continue
+            if not auditor_name:
                 _delete_shape(s)
+                continue
+            # Первый абзац "Отчет составил" и второй с ФИО оставляем,
+            # должность и личный телефон из шаблона затираем
+            paragraphs = s.text_frame.paragraphs
+            for i, p in enumerate(paragraphs):
+                for ri, r in enumerate(p.runs):
+                    if i == 0:
+                        continue
+                    r.text = auditor_name if (i == 1 and ri == 0) else ""
 
     # Актуальный адрес офиса на слайде контактов
     for slide in prs.slides:
@@ -280,7 +303,7 @@ def layout_case_image(slide, img_path):
     slide.shapes.add_picture(img_path, Emu(left), Emu(top), Emu(size), Emu(size))
 
 
-def build_pptx(data: AuditData, audit_type: str = "full") -> io.BytesIO:
+def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.BytesIO:
     prs = Presentation(TEMPLATE_PATH)
     include_recommendations = audit_type == "full"
 
@@ -294,7 +317,7 @@ def build_pptx(data: AuditData, audit_type: str = "full") -> io.BytesIO:
             temp_images.append((i, img_path))
 
     try:
-        remove_personal_marks(prs)
+        remove_personal_marks(prs, auditor=auditor)
         fix_title_colors(prs)
 
         for s in prs.slides[0].shapes:

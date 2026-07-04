@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException
 
 import imaging
-from schemas import GenerateImageRequest
+import rag
+from schemas import Auditor, GenerateImageRequest, ImageSuggestionsRequest
 
 router = APIRouter()
 
@@ -13,3 +14,30 @@ async def generate_image(req: GenerateImageRequest):
         return {"image_b64": image_b64}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/image_suggestions")
+async def image_suggestions(req: ImageSuggestionsRequest):
+    try:
+        images = rag.find_similar_images(req.title, req.vulnerability or "", n=req.n)
+        return {"images": images}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/auditors")
+async def list_auditors():
+    return {"auditors": rag.get_auditors()}
+
+
+@router.post("/api/auditors")
+async def create_auditor(req: Auditor):
+    if not req.name.strip():
+        raise HTTPException(status_code=422, detail="Имя не может быть пустым")
+    photo = req.photo_b64
+    if photo:
+        try:
+            photo = imaging.crop_photo_to_circle(photo)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"Не удалось обработать фото: {e}")
+    return rag.save_auditor(req.name, photo)

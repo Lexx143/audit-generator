@@ -18,7 +18,9 @@ async def generate_pptx(req: GeneratePptxRequest):
     if not os.path.exists(pptx_builder.TEMPLATE_PATH):
         raise HTTPException(status_code=500, detail="Template not found")
 
-    output_io = pptx_builder.build_pptx(data, audit_type=req.audit_type or "full")
+    output_io = pptx_builder.build_pptx(
+        data, audit_type=req.audit_type or "full", auditor=req.auditor
+    )
 
     if req.save_to_memory:
         try:

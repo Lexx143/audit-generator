@@ -11,6 +11,9 @@ class Case(BaseModel):
     category: str
     image_prompt: str
     image_b64: Optional[str] = None
+    # Можно ли сохранить картинку в библиотеку для будущих аудитов
+    # (сгенерированные и загруженные иллюстрации — да, фотографии объектов — нет)
+    image_reusable: Optional[bool] = None
 
 
 class AuditData(BaseModel):
@@ -45,7 +48,20 @@ class GenerateImageRequest(BaseModel):
     style: Optional[str] = "3d_icon"
 
 
+class Auditor(BaseModel):
+    id: Optional[str] = None
+    name: str
+    photo_b64: Optional[str] = None
+
+
 class GeneratePptxRequest(BaseModel):
     data: AuditData
     audit_type: Optional[str] = "full"
     save_to_memory: bool = False
+    auditor: Optional[Auditor] = None
+
+
+class ImageSuggestionsRequest(BaseModel):
+    title: str
+    vulnerability: Optional[str] = ""
+    n: int = 6
