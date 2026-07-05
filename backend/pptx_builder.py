@@ -35,7 +35,8 @@ PRIORITY_COLORS = {
 
 COMPANY_ADDRESS = "Янтарная улица, 58в"
 
-ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII"]
+ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
+         "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"]
 
 
 def _strip_category_number(cat: str) -> str:
@@ -155,6 +156,30 @@ def recolor_priority_badge(slide, priority):
 
 def _delete_shape(shape):
     shape._element.getparent().remove(shape._element)
+
+
+def clone_slide(prs, source):
+    """Клонирует слайд (фигуры + картинки) в конец презентации."""
+    dest = prs.slides.add_slide(source.slide_layout)
+    # add_slide подтягивает плейсхолдеры макета — убираем, фигуры скопируем сами
+    for shp in list(dest.shapes):
+        _delete_shape(shp)
+
+    # переносим связи на картинки и запоминаем соответствие rId
+    rid_map = {}
+    for rel in source.part.rels.values():
+        if rel.is_external or "image" not in rel.reltype:
+            continue
+        rid_map[rel.rId] = dest.part.relate_to(rel.target_part, rel.reltype)
+
+    for shp in source.shapes:
+        el = copy.deepcopy(shp._element)
+        for sub in el.iter():
+            for key in list(sub.attrib):
+                if (key.endswith('}embed') or key.endswith('}link')) and sub.attrib[key] in rid_map:
+                    sub.set(key, rid_map[sub.attrib[key]])
+        dest.shapes._spTree.append(el)
+    return dest
 
 
 def _image_md5(shape):
@@ -437,66 +462,67 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
             for r in range(len(t4.rows) - 1, len(cats) - 1, -1):
                 _delete_table_row(t4, r)
 
-        # Заголовки секций — по категории первого кейса секции
-        # (кейсы 1-3 идут под первым разделителем, 4-5 — под вторым)
-        def _section_title(idx, fallback):
-            if len(data.cases) > idx:
-                return numbered[_strip_category_number(data.cases[idx].category) or "Прочее"]
-            return fallback
-
-        section1_title = _section_title(0, "I. Серверная инфраструктура")
-        section2_title = _section_title(3, "II. Сеть и ИТ-поддержка")
-
-        for s in prs.slides[5].shapes:
-            if hasattr(s, 'text') and s.text and 'I.' in s.text:
-                perfect_replace(s, section1_title)
-
-        for s in prs.slides[9].shapes:
-            if hasattr(s, 'text') and s.text and 'II.' in s.text:
-                perfect_replace(s, section2_title)
-
-        case_slides = [6, 7, 8, 10, 11]
-        for i, case in enumerate(data.cases):
-            if i >= len(case_slides):
-                break
-            slide = prs.slides[case_slides[i]]
-            normalize_case_slide_layout(slide)
-            perfect_replace(get_title(slide), f"Кейс {i+1}: {case.title}")
-
-            if get_priority(slide):
-                perfect_replace(get_priority(slide), case.priority)
-                recolor_priority_badge(slide, case.priority)
-
-            t = get_table(slide)
-            if t:
-                replace_labeled_cell(t, 0, 0, "Уязвимость: ", case.vulnerability)
-                replace_labeled_cell(t, 1, 0, "Риски: ", case.risk)
-                if include_recommendations and case.recommendation:
-                    rec_row = _clone_table_row(t, 1)
-                    replace_labeled_cell(t, rec_row, 0, "Рекомендации: ", case.recommendation)
-
-            img_path_tuple = next((x for x in temp_images if x[0] == i), None)
-            if img_path_tuple:
-                layout_case_image(slide, img_path_tuple[1])
-            else:
-                # Без новой картинки шаблонное фото чужого клиента в отчете не оставляем
-                clear_case_pictures(slide)
-
         conc_text = "\n".join([f"• {c}" for c in data.conclusions])
         for s in prs.slides[16].shapes:
             if hasattr(s, 'text') and s.text and 'Вариант 1' in s.text:
                 perfect_replace(s, conc_text)
 
-        # Неиспользуемые слайды: варианты-предложения из шаблона (12-15),
-        # слайды лишних кейсов и разделитель второй секции, если она пуста
-        to_delete = {12, 13, 14, 15}
-        to_delete.update(case_slides[len(data.cases):])
-        if len(data.cases) <= 3:
-            to_delete.add(9)
-        for i in sorted(to_delete, reverse=True):
+        # --- Секции и кейсы: клонируем шаблонные слайды под любое число кейсов ---
+        divider_template = prs.slides[5]
+        case_template = prs.slides[6]
+        normalize_case_slide_layout(case_template)
+
+        # группируем кейсы по категориям, сохраняя порядок появления категорий
+        groups = {cat: [] for cat in ordered_cats}
+        for i, case in enumerate(data.cases):
+            cat = _strip_category_number(case.category) or "Прочее"
+            groups[cat].append((i, case))
+
+        case_no = 0
+        for cat in ordered_cats:
+            divider = clone_slide(prs, divider_template)
+            for s in divider.shapes:
+                if hasattr(s, 'text') and s.text and re.match(r"\s*[IVX]+\.", s.text):
+                    perfect_replace(s, numbered[cat])
+
+            for orig_idx, case in groups[cat]:
+                case_no += 1
+                slide = clone_slide(prs, case_template)
+                perfect_replace(get_title(slide), f"Кейс {case_no}: {case.title}")
+
+                if get_priority(slide):
+                    perfect_replace(get_priority(slide), case.priority)
+                    recolor_priority_badge(slide, case.priority)
+
+                t = get_table(slide)
+                if t:
+                    replace_labeled_cell(t, 0, 0, "Уязвимость: ", case.vulnerability)
+                    replace_labeled_cell(t, 1, 0, "Риски: ", case.risk)
+                    if include_recommendations and case.recommendation:
+                        rec_row = _clone_table_row(t, 1)
+                        replace_labeled_cell(t, rec_row, 0, "Рекомендации: ", case.recommendation)
+
+                img_path_tuple = next((x for x in temp_images if x[0] == orig_idx), None)
+                if img_path_tuple:
+                    layout_case_image(slide, img_path_tuple[1])
+                else:
+                    # Без новой картинки шаблонное фото чужого клиента в отчете не оставляем
+                    clear_case_pictures(slide)
+
+        # Убираем все шаблонные слайды кейсов/секций/предложений (5-15) —
+        # вместо них уже добавлены клоны в конце
+        for i in range(15, 4, -1):
             rId = prs.slides._sldIdLst[i].rId
             prs.part.drop_rel(rId)
             del prs.slides._sldIdLst[i]
+
+        # Порядок: [титул..категории] [клоны секций/кейсов] [выводы] [контакты]
+        # После удаления выводы и контакты стоят перед клонами — переносим их в конец
+        sld_lst = prs.slides._sldIdLst
+        for _ in range(2):
+            el = sld_lst[5]
+            sld_lst.remove(el)
+            sld_lst.append(el)
 
         output_io = io.BytesIO()
         prs.save(output_io)

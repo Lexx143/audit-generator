@@ -336,10 +336,6 @@ function App() {
   };
 
   const handleAddCase = () => {
-    if (auditData.cases.length >= 5) {
-      addToast("Максимум 5 кейсов — ограничение шаблона отчета", 'error');
-      return;
-    }
     setAuditData(prev => ({
       ...prev,
       cases: [...prev.cases, {
@@ -672,9 +668,7 @@ function App() {
 
           <div className="flex-between" style={{marginTop: '1rem'}}>
             <h3>Кейсы ({auditData.cases.length})</h3>
-            {auditData.cases.length < 5 && (
-              <button className="btn-small" onClick={handleAddCase}>＋ Добавить кейс</button>
-            )}
+            <button className="btn-small" onClick={handleAddCase}>＋ Добавить кейс</button>
           </div>
           <div className="cases-grid">
             {auditData.cases.map((c, i) => (
