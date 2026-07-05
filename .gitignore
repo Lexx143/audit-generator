@@ -6,3 +6,6 @@ backend/archive/
 backend/db/
 backend/static/
 dist/
+backend/data/
+backend/assets/template.pptx
+.deploy-server
