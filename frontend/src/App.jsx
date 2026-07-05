@@ -939,7 +939,7 @@ function App() {
       )}
 
       <footer className="site-footer">
-        Разработка: Lexx · <a href="mailto:deuslevolt013@gmail.com">deuslevolt013@gmail.com</a>
+        Разработка: Lexx · <a href="mailto:deuslevolt013@gmail.com">deuslevolt013@gmail.com</a> · <a href="https://github.com/Lexx143/audit-generator" target="_blank" rel="noopener noreferrer">GitHub</a>
       </footer>
 
       <div className="toast-container">
