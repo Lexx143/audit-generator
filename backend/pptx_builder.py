@@ -434,7 +434,8 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
             if cat not in ordered_cats:
                 ordered_cats.append(cat)
         numbered = {name: f"{ROMAN[min(i, len(ROMAN)-1)]}. {name}" for i, name in enumerate(ordered_cats)}
-        table_cats = [numbered[n] for n in ordered_cats[:3]]
+        # На слайде под таблицу помещается ~7 строк; сверх этого — в последнюю
+        table_cats = [numbered[n] for n in ordered_cats[:7]]
         cat_counts = {c: {"ПЕРВЫЙ ПРИОРИТЕТ": 0, "ВТОРОЙ ПРИОРИТЕТ": 0, "ТРЕТИЙ ПРИОРИТЕТ": 0} for c in table_cats}
 
         for case in data.cases:
@@ -452,6 +453,9 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
         t4 = get_table(prs.slides[4])
         if t4:
             cats = table_cats
+            # Категорий больше, чем строк в шаблоне — доклонируем строки
+            while len(t4.rows) < len(cats):
+                _clone_table_row(t4, len(t4.rows) - 1)
             for r, cat in enumerate(cats):
                 replace_table_cell(t4, r, 0, cat)
                 replace_table_cell(t4, r, 1, str(cat_counts[cat]["ПЕРВЫЙ ПРИОРИТЕТ"]))
