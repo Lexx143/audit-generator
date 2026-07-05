@@ -434,15 +434,13 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
             if cat not in ordered_cats:
                 ordered_cats.append(cat)
         numbered = {name: f"{ROMAN[min(i, len(ROMAN)-1)]}. {name}" for i, name in enumerate(ordered_cats)}
-        # На слайде под таблицу помещается ~7 строк; сверх этого — в последнюю
-        table_cats = [numbered[n] for n in ordered_cats[:7]]
+        table_cats = [numbered[n] for n in ordered_cats]
         cat_counts = {c: {"ПЕРВЫЙ ПРИОРИТЕТ": 0, "ВТОРОЙ ПРИОРИТЕТ": 0, "ТРЕТИЙ ПРИОРИТЕТ": 0} for c in table_cats}
 
         for case in data.cases:
             prio_counts[case.priority] += 1
             cat = numbered[_strip_category_number(case.category) or "Прочее"]
-            key = cat if cat in cat_counts else table_cats[-1]
-            cat_counts[key][case.priority] += 1
+            cat_counts[cat][case.priority] += 1
 
         t3 = get_table(prs.slides[3])
         if t3:
@@ -450,20 +448,37 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
             replace_table_cell(t3, 0, 1, str(prio_counts["ВТОРОЙ ПРИОРИТЕТ"]))
             replace_table_cell(t3, 0, 2, str(prio_counts["ТРЕТИЙ ПРИОРИТЕТ"]))
 
-        t4 = get_table(prs.slides[4])
-        if t4:
-            cats = table_cats
-            # Категорий больше, чем строк в шаблоне — доклонируем строки
-            while len(t4.rows) < len(cats):
+        # Долевое распределение: до 7 строк на слайд, дальше — слайды-продолжения
+        CAT_ROWS_PER_SLIDE = 7
+        cat_chunks = [table_cats[i:i + CAT_ROWS_PER_SLIDE]
+                      for i in range(0, len(table_cats), CAT_ROWS_PER_SLIDE)] or [[]]
+        dist_slides = [prs.slides[4]]
+        for _ in cat_chunks[1:]:
+            extra = clone_slide(prs, prs.slides[4])
+            for s in extra.shapes:
+                if hasattr(s, 'text') and s.text and 'Долевое' in s.text:
+                    # приписываем "(продолжение)" к последней строке заголовка
+                    for p in reversed(s.text_frame.paragraphs):
+                        if p.runs and p.text.strip():
+                            p.runs[-1].text = p.runs[-1].text + " (продолжение)"
+                            break
+                    break
+            dist_slides.append(extra)
+
+        for dist_slide, chunk in zip(dist_slides, cat_chunks):
+            t4 = get_table(dist_slide)
+            if not t4:
+                continue
+            while len(t4.rows) < len(chunk):
                 _clone_table_row(t4, len(t4.rows) - 1)
-            for r, cat in enumerate(cats):
+            for r, cat in enumerate(chunk):
                 replace_table_cell(t4, r, 0, cat)
                 replace_table_cell(t4, r, 1, str(cat_counts[cat]["ПЕРВЫЙ ПРИОРИТЕТ"]))
                 replace_table_cell(t4, r, 2, str(cat_counts[cat]["ВТОРОЙ ПРИОРИТЕТ"]))
                 replace_table_cell(t4, r, 3, str(cat_counts[cat]["ТРЕТИЙ ПРИОРИТЕТ"]))
 
             # Лишние строки удаляем целиком, чтобы таблица не "плыла"
-            for r in range(len(t4.rows) - 1, len(cats) - 1, -1):
+            for r in range(len(t4.rows) - 1, len(chunk) - 1, -1):
                 _delete_table_row(t4, r)
 
         conc_text = "\n".join([f"• {c}" for c in data.conclusions])
