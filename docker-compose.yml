@@ -20,7 +20,9 @@ services:
     container_name: audit-frontend
     restart: always
     ports:
-      - "3000:80"
+      # Только docker-мост: снаружи доступ идет через Caddy (audit.ktgas.kz, basic auth).
+      # Прямой http://IP:3000 из интернета закрыт.
+      - "172.17.0.1:3000:80"
     depends_on:
       - backend
     networks:
