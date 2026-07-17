@@ -1,3 +1,5 @@
+import json
+
 from openai import AsyncOpenAI
 
 import config
@@ -89,12 +91,35 @@ async def generate_structure(req: ParseRequest) -> AuditData:
     )
 
 
+def _strip_images(data: AuditData) -> str:
+    """JSON структуры БЕЗ base64-картинок — они раздувают промпт на сотни тысяч
+    токенов и модель их всё равно не может воспроизвести. Возвращаем в промпт
+    только image_prompt (по нему потом сопоставим картинки обратно)."""
+    d = data.model_dump()
+    for c in d.get("cases", []):
+        c.pop("image_b64", None)
+        c.pop("image_reusable", None)
+    return json.dumps(d, ensure_ascii=False, indent=2)
+
+
+def _reattach_images(revised: AuditData, original: AuditData) -> AuditData:
+    """Возвращает картинки исходных кейсов новым по совпадению image_prompt/title."""
+    by_prompt = {c.image_prompt: c for c in original.cases if c.image_b64}
+    by_title = {c.title: c for c in original.cases if c.image_b64}
+    for c in revised.cases:
+        src = by_prompt.get(c.image_prompt) or by_title.get(c.title)
+        if src:
+            c.image_b64 = src.image_b64
+            c.image_reusable = src.image_reusable
+    return revised
+
+
 async def revise_structure(req: ReviseRequest) -> AuditData:
     rag_context = _build_rag_context(req.revision_prompt, "")
 
     prompt = f"""
 Текущая структура аудита:
-{req.current_data.model_dump_json(indent=2)}
+{_strip_images(req.current_data)}
 
 Комментарии и правки от пользователя:
 {req.revision_prompt}
@@ -106,23 +131,27 @@ async def revise_structure(req: ReviseRequest) -> AuditData:
 {STYLE_GUIDE}
 
 Внимательно изучи комментарии пользователя и примени эти изменения к текущей структуре.
-Верни обновленный JSON (AuditData).
-ВАЖНО: Кейсов может быть любое количество (минимум 1). Если пользователь просит удалить или добавить кейс — сделай это. Без такой просьбы состав кейсов не меняй. Сохрани поля image_b64 и image_prompt без изменений, если пользователь явно не просил поменять картинку или тему кейса.
+Верни обновленный JSON (AuditData). Поле image_b64 не заполняй — оставь пустым (картинки подставятся автоматически). Поле image_prompt сохраняй без изменений, если пользователь не просил поменять тему кейса.
+ВАЖНО: Кейсов может быть любое количество (минимум 1). Если пользователь просит удалить или добавить кейс — сделай это. Без такой просьбы состав кейсов не меняй.
 """
 
-    return await _parse_structured(
+    revised = await _parse_structured(
         prompt,
         system="Ты ведущий эксперт по ИТ-аудитам. Твоя цель — обновить JSON по просьбе пользователя.",
         response_format=AuditData,
     )
+    return _reattach_images(revised, req.current_data)
 
 
 async def revise_single_case(req: ReviseCaseRequest) -> Case:
     rag_context = _build_rag_context(req.case.vulnerability, "")
 
+    case_no_img = req.case.model_dump()
+    case_no_img.pop("image_b64", None)
+
     prompt = f"""
 Текущий кейс из ИТ-аудита:
-{req.case.model_dump_json(indent=2)}
+{json.dumps(case_no_img, ensure_ascii=False, indent=2)}
 
 Контекст о клиенте:
 {req.general_data}
