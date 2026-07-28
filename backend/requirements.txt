@@ -1,7 +1,9 @@
 fastapi
 uvicorn
-openai
+anthropic
+google-genai
 chromadb
+sentence-transformers
 python-pptx
 python-dotenv
 pydantic

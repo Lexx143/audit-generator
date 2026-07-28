@@ -18,8 +18,8 @@
 - **Генерация структуры аудита** из сырого текста: кейс на каждую указанную
   уязвимость (без ограничения количества), приоритеты, категории, обзор, выводы
 - **RAG few-shot**: промпт обогащается похожими кейсами из прошлых аудитов
-  (ChromaDB + OpenAI embeddings)
-- **Иллюстрации кейсов**: генерация (gpt-image-2, три стиля — 3D-иконка,
+  (ChromaDB + локальные sentence-transformers эмбеддинги)
+- **Иллюстрации кейсов**: генерация (nano banana через Antigravity CLI, три стиля — 3D-иконка,
   плоский вектор, изометрия), загрузка своих картинок/фото, автоподбор
   ранее сгенерированных из библиотеки по смыслу кейса (с перелистыванием)
 - **Умные правки**: свободной формулировкой («убери кейс про антивирус,
@@ -40,8 +40,8 @@
 ```
 ┌──────────────┐   /api/*    ┌────────────────────────────────┐
 │ React + Vite │ ──────────► │ FastAPI (async)                │
-│    (SPA)     │             │  ├─ llm.py     — GPT (structured outputs)
-└──────────────┘             │  ├─ imaging.py — gpt-image-2 + фолбэки
+│    (SPA)     │             │  ├─ llm.py     — Claude (structured outputs)
+└──────────────┘             │  ├─ imaging.py — nano banana + фолбэки
        ▲                     │  ├─ rag.py     — ChromaDB, база знаний
        │ static              │  └─ pptx_builder.py — python-pptx
 ┌──────┴───────┐             └────────────────┬───────────────┘
@@ -55,7 +55,7 @@
 - **backend/** — FastAPI: `routers/` (тонкие эндпоинты), `llm.py` (структурная
   генерация через structured outputs), `rag.py` (коллекции знаний, семантический
   дедуп подсказок, библиотека картинок), `imaging.py` (генерация с каскадом
-  фолбэков: gpt-image-2 → Pollinations → локальный плейсхолдер),
+  фолбэков: nano banana (agy) → Gemini API → Pollinations → локальный плейсхолдер),
   `pptx_builder.py` (сборка отчета: клонирование слайдов, динамические таблицы)
 - **frontend/** — React SPA, собирается в статику, раздается Nginx,
   который проксирует `/api/` на бэкенд
@@ -65,7 +65,7 @@
 ## Требования
 
 - Python 3.11+, Node 18+ (для разработки) или Docker + Docker Compose (для прода)
-- OpenAI API key с доступом к текстовым и графическим моделям
+- Anthropic API key (текст); опционально Gemini/agy для картинок
 - **Шаблон отчета** `backend/assets/template.pptx` — в репозиторий не входит
   (фирменный дизайн). Ожидаемая структура: титул, введение, ревью, счетчики,
   долевое распределение, слайд-разделитель секции, слайды кейсов
@@ -90,13 +90,13 @@ npm run dev -- --host           # http://localhost:5173
 
 | Переменная | По умолчанию | Описание |
 |---|---|---|
-| `OPENAI_API_KEY` | — | ключ OpenAI (текст + картинки) |
-| `TEXT_MODEL` | `gpt-5.5` | модель генерации структуры |
+| `ANTHROPIC_API_KEY` | — | ключ Anthropic (текст) |
+| `TEXT_MODEL` | `claude-opus-5` | модель генерации структуры |
 | `REASONING_EFFORT` | `medium` | глубина рассуждений (low/medium/high) |
-| `IMAGE_MODEL` | `gpt-image-2` | модель генерации иллюстраций |
+| `IMAGE_MODEL` | `gemini-2.5-flash-image` | запасная модель иллюстраций (Gemini API) |
 | `IMAGE_QUALITY` | `medium` | качество картинок (low/medium/high) |
 | `IMAGE_SIZE` | `1024x1024` | размер картинок |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | эмбеддинги для RAG |
+| `EMBEDDING_MODEL` | `paraphrase-multilingual-MiniLM-L12-v2` | локальные эмбеддинги RAG |
 
 ## Продакшен (Docker)
 
@@ -151,8 +151,8 @@ A key feature is the **self-learning knowledge base**: every approved report pop
 ## Features
 
 - **Audit structure generation** from raw text: a case for each specified vulnerability (no limit on quantity), priorities, categories, overview, conclusions.
-- **RAG few-shot**: the prompt is enriched with similar cases from past audits (ChromaDB + OpenAI embeddings).
-- **Case illustrations**: generation (gpt-image-2, three styles — 3D icon, flat vector, isometric), upload custom pictures/photos, auto-selection of previously generated images from the semantic library (with swipe).
+- **RAG few-shot**: the prompt is enriched with similar cases from past audits (ChromaDB + local sentence-transformers embeddings).
+- **Case illustrations**: generation (nano banana via Antigravity CLI, three styles — 3D icon, flat vector, isometric), upload custom pictures/photos, auto-selection of previously generated images from the semantic library (with swipe).
 - **Smart edits**: using free-form phrasing ("remove the antivirus case, make the risks harsher") — the AI rewrites the structure; individual text improvement button on each case.
 - **Auditor profiles**: name and photo (with interactive cropping, "teardrop" mask matching the branded template) — automatically inserted into the report.
 - **PPTX Export**: dynamic slide cloning for any number of cases and categories, auto-numbering of sections, recoloring priority badges, separate rows for "Vulnerability / Risks / Recommendations", auto-placement of images without overlapping text.
@@ -164,8 +164,8 @@ A key feature is the **self-learning knowledge base**: every approved report pop
 ```
 ┌──────────────┐   /api/*    ┌────────────────────────────────┐
 │ React + Vite │ ──────────► │ FastAPI (async)                │
-│    (SPA)     │             │  ├─ llm.py     — GPT (structured outputs)
-└──────────────┘             │  ├─ imaging.py — gpt-image-2 + fallbacks
+│    (SPA)     │             │  ├─ llm.py     — Claude (structured outputs)
+└──────────────┘             │  ├─ imaging.py — nano banana + fallbacks
        ▲                     │  ├─ rag.py     — ChromaDB, knowledge base
        │ static              │  └─ pptx_builder.py — python-pptx
 ┌──────┴───────┐             └────────────────┬───────────────┘
@@ -176,14 +176,14 @@ A key feature is the **self-learning knowledge base**: every approved report pop
                                       └──────────────┘
 ```
 
-- **backend/** — FastAPI: `routers/` (thin endpoints), `llm.py` (structured generation via structured outputs), `rag.py` (knowledge collections, semantic hint deduplication, image library), `imaging.py` (generation with fallback cascade: gpt-image-2 → Pollinations → local placeholder), `pptx_builder.py` (report assembly: slide cloning, dynamic tables).
+- **backend/** — FastAPI: `routers/` (thin endpoints), `llm.py` (structured generation via structured outputs), `rag.py` (knowledge collections, semantic hint deduplication, image library), `imaging.py` (generation with fallback cascade: nano banana (agy) → Gemini API → Pollinations → local placeholder), `pptx_builder.py` (report assembly: slide cloning, dynamic tables).
 - **frontend/** — React SPA, built as static files, served by Nginx, which proxies `/api/` to the backend.
 - **Storage** — ChromaDB (sqlite) + files in `backend/db/`: no external DBMS, the entire knowledge base is portable simply by copying the folder.
 
 ## Requirements
 
 - Python 3.11+, Node 18+ (for development) or Docker + Docker Compose (for production).
-- OpenAI API key with access to text and image models.
+- Anthropic API key (text); optionally Gemini/agy for images.
 - **Report template** `backend/assets/template.pptx` — not included in the repository (branded design). Expected structure: title, introduction, review, counters, distribution chart, section divider slide, case slides (2x1 table + priority badge), conclusions, contacts.
 
 ## Quick Start (Development)
@@ -205,13 +205,13 @@ npm run dev -- --host           # http://localhost:5173
 
 | Variable | Default | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | — | OpenAI key (text + images) |
-| `TEXT_MODEL` | `gpt-5.5` | Model for structure generation |
+| `ANTHROPIC_API_KEY` | — | Anthropic key (text) |
+| `TEXT_MODEL` | `claude-opus-5` | Model for structure generation |
 | `REASONING_EFFORT` | `medium` | Reasoning depth (low/medium/high) |
-| `IMAGE_MODEL` | `gpt-image-2` | Model for illustration generation |
+| `IMAGE_MODEL` | `gemini-2.5-flash-image` | Fallback image model (Gemini API) |
 | `IMAGE_QUALITY` | `medium` | Image quality (low/medium/high) |
 | `IMAGE_SIZE` | `1024x1024` | Image size |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | Embeddings for RAG |
+| `EMBEDDING_MODEL` | `paraphrase-multilingual-MiniLM-L12-v2` | Local RAG embeddings |
 
 ## Production (Docker)
 

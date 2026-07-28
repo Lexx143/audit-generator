@@ -5,11 +5,12 @@ import io
 import uuid
 from urllib.parse import quote
 
-from openai import AsyncOpenAI
+from google import genai
+from google.genai import types
 
 import config
 
-client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+_genai_client = genai.Client(api_key=config.GOOGLE_API_KEY) if config.GOOGLE_API_KEY else None
 
 STYLE_PRESETS = {
     "3d_icon": (
@@ -35,18 +36,73 @@ def build_full_prompt(prompt: str, style: str) -> str:
     return template.format(prompt=prompt)
 
 
-async def _generate_openai(full_prompt: str) -> str:
-    response = await client.images.generate(
-        model=config.IMAGE_MODEL,
-        prompt=full_prompt,
-        size=config.IMAGE_SIZE,
-        quality=config.IMAGE_QUALITY,
-        output_format="jpeg",
-        output_compression=85,
-        n=1,
+def _to_jpeg_b64(raw: bytes, quality: int = 85) -> str:
+    """PNG-байты -> data:image/jpeg;base64. Иконки кейсов уезжают в JSON и в
+    PPTX, поэтому держим их лёгкими."""
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(raw)).convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality, optimize=True)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
+# Мост к Монстру: там forced-command ключ, привязанный к /usr/local/bin/agy-image.
+# Обёртка принимает промпт в stdin и печатает base64 PNG в stdout; никакой другой
+# команды этим ключом выполнить нельзя (restrict в authorized_keys).
+_BRIDGE_OPTS = [
+    "-o", "StrictHostKeyChecking=accept-new",
+    "-o", "ConnectTimeout=10",
+    "-o", "BatchMode=yes",
+]
+
+
+async def _generate_agy_bridge(full_prompt: str) -> str:
+    """Nano banana через Antigravity CLI (agy) на Монстре. Генерация ~25-40 сек."""
+    if not (config.AGY_SSH_HOST and config.AGY_SSH_KEY):
+        raise RuntimeError("AGY_SSH не настроен")
+    argv = (
+        ["ssh", "-i", config.AGY_SSH_KEY]
+        + _BRIDGE_OPTS
+        + [f"{config.AGY_SSH_USER}@{config.AGY_SSH_HOST}"]
     )
-    b64 = response.data[0].b64_json
-    return f"data:image/jpeg;base64,{b64}"
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        out, err = await asyncio.wait_for(
+            proc.communicate(full_prompt.encode("utf-8")), timeout=180
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise RuntimeError("agy: таймаут 180с")
+    if proc.returncode != 0 or not out:
+        raise RuntimeError(f"agy: {(err or b'')[-300:].decode(errors='replace').strip()}")
+    # agy отдаёт PNG ~900 КБ; в JSON и PPTX это неподъёмно — жмём в JPEG,
+    # как делал прежний путь (на 8 кейсов экономит порядка 7 МБ).
+    return _to_jpeg_b64(base64.b64decode(out))
+
+
+def _generate_gemini_sync(full_prompt: str) -> str:
+    """Nano Banana (gemini-2.5-flash-image) через AI Studio.
+    Требует включённого биллинга/квоты на Google — иначе 403/429."""
+    if _genai_client is None:
+        raise RuntimeError("GOOGLE_API_KEY не задан")
+    resp = _genai_client.models.generate_content(
+        model=config.IMAGE_MODEL,
+        contents=full_prompt,
+        config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
+    )
+    for part in resp.candidates[0].content.parts:
+        inline = getattr(part, "inline_data", None)
+        if inline and inline.data:
+            mime = inline.mime_type or "image/png"
+            b64 = base64.b64encode(inline.data).decode("utf-8")
+            return f"data:{mime};base64,{b64}"
+    raise RuntimeError("Gemini не вернул картинку")
 
 
 def _generate_pollinations_sync(full_prompt: str) -> str:
@@ -102,13 +158,18 @@ def prepare_auditor_photo(photo_b64: str, size: int = 512) -> str:
 
 
 async def generate_image_b64(prompt: str, style: str = "3d_icon") -> str:
-    """gpt-image-2 -> Pollinations -> локальный плейсхолдер."""
+    """agy-мост (nano banana) -> Gemini API -> Pollinations -> локальный плейсхолдер."""
     full_prompt = build_full_prompt(prompt, style)
 
     try:
-        return await _generate_openai(full_prompt)
+        return await _generate_agy_bridge(full_prompt)
     except Exception as e:
-        print(f"OpenAI image generation failed ({config.IMAGE_MODEL}): {e}")
+        print(f'agy bridge image generation failed: {e}')
+
+    try:
+        return await asyncio.to_thread(_generate_gemini_sync, full_prompt)
+    except Exception as e:
+        print(f"Gemini image generation failed ({config.IMAGE_MODEL}): {e}")
 
     try:
         return await asyncio.to_thread(_generate_pollinations_sync, full_prompt)

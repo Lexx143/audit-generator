@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+archive/
+data/
+db/
+db.bak/
+static/
+.env
+secrets/
+.DS_Store

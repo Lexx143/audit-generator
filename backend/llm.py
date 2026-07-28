@@ -1,12 +1,12 @@
 import json
 
-from openai import AsyncOpenAI
+from anthropic import AsyncAnthropic
 
 import config
 import rag
 from schemas import AuditData, Case, ParseRequest, ReviseRequest, ReviseCaseRequest
 
-client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+client = AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY)
 
 STYLE_GUIDE = """
 ТРЕБОВАНИЯ К КАЧЕСТВУ ТЕКСТА:
@@ -45,16 +45,19 @@ def _build_rag_context(vulnerabilities: str, conclusions: str) -> str:
 
 
 async def _parse_structured(prompt: str, system: str, response_format):
-    response = await client.beta.chat.completions.parse(
+    # Anthropic structured output: messages.parse сам ставит output_config.format
+    # из output_format и валидирует ответ в Pydantic-модель (parsed_output).
+    # Adaptive thinking + effort — вместо reasoning_effort у OpenAI.
+    message = await client.messages.parse(
         model=config.TEXT_MODEL,
-        reasoning_effort=config.REASONING_EFFORT,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        ],
-        response_format=response_format,
+        max_tokens=config.MAX_TOKENS,
+        system=system,
+        thinking={"type": "adaptive"},
+        output_config={"effort": config.REASONING_EFFORT},
+        messages=[{"role": "user", "content": prompt}],
+        output_format=response_format,
     )
-    return response.choices[0].message.parsed
+    return message.parsed_output
 
 
 async def generate_structure(req: ParseRequest) -> AuditData:

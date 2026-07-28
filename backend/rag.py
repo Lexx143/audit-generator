@@ -12,28 +12,30 @@ import config
 
 chroma_client = chromadb.PersistentClient(path=config.CHROMA_PATH)
 
-openai_ef = embedding_functions.OpenAIEmbeddingFunction(
-    api_key=config.OPENAI_API_KEY,
+# Локальная мультиязычная модель (sentence-transformers). Ключ не нужен,
+# русский держит нормально. Векторы иной размерности, чем у OpenAI —
+# при смене модели базу надо переиндексировать (reindex.py).
+local_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
     model_name=config.EMBEDDING_MODEL,
 )
 
 cases_collection = chroma_client.get_or_create_collection(
-    name="audit_cases", embedding_function=openai_ef
+    name="audit_cases", embedding_function=local_ef
 )
 conclusions_collection = chroma_client.get_or_create_collection(
-    name="audit_conclusions", embedding_function=openai_ef
+    name="audit_conclusions", embedding_function=local_ef
 )
 # Полные структурированные кейсы из прошлых аудитов — few-shot примеры для генерации
 case_examples_collection = chroma_client.get_or_create_collection(
-    name="audit_case_examples", embedding_function=openai_ef
+    name="audit_case_examples", embedding_function=local_ef
 )
 # Индекс подсказок для семантического дедупа выпадающего списка
 hints_collection = chroma_client.get_or_create_collection(
-    name="audit_hints", embedding_function=openai_ef
+    name="audit_hints", embedding_function=local_ef
 )
 # Библиотека картинок кейсов: документ = тема кейса, в метаданных путь к файлу
 images_collection = chroma_client.get_or_create_collection(
-    name="case_images", embedding_function=openai_ef
+    name="case_images", embedding_function=local_ef
 )
 
 IMAGES_DIR = os.path.join(config.CHROMA_PATH, "images")
