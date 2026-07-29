@@ -9,7 +9,7 @@ services:
     volumes:
       - ./backend/db:/app/db
       - ./backend/.env:/app/.env
-      # ключ моста генерации картинок (agy на Монстре), только чтение
+      # ключ моста генерации картинок (agy), только чтение
       - ./backend/secrets:/app/secrets:ro
     # No need to expose port to host, nginx will proxy to it internally
     networks:

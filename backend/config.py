@@ -13,9 +13,10 @@ MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "16000"))
 # --- Эмбеддинги RAG: локальная мультиязычная модель, ключ не нужен ---
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
 
-# --- Картинки, основной путь: nano banana через Antigravity CLI (agy) на Монстре.
-#     Машина зовёт его по SSH forced-command ключом (ключ умеет только «сгенерировать
-#     картинку»). Настроено, если заданы все три переменные. ---
+# --- Картинки, основной путь: nano banana через Antigravity CLI (agy) на
+#     отдельном хосте. Бэкенд зовёт его по SSH ключом с forced-command:
+#     этим ключом можно только попросить картинку, шелл получить нельзя.
+#     Путь включается, если заданы все три переменные. ---
 AGY_SSH_HOST = os.environ.get("AGY_SSH_HOST", "")
 AGY_SSH_USER = os.environ.get("AGY_SSH_USER", "imagegen")
 AGY_SSH_KEY = os.environ.get("AGY_SSH_KEY", "")

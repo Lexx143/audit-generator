@@ -47,9 +47,9 @@ def _to_jpeg_b64(raw: bytes, quality: int = 85) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
-# Мост к Монстру: там forced-command ключ, привязанный к /usr/local/bin/agy-image.
-# Обёртка принимает промпт в stdin и печатает base64 PNG в stdout; никакой другой
-# команды этим ключом выполнить нельзя (restrict в authorized_keys).
+# Мост к хосту с agy: на той стороне ключ привязан forced-command к обёртке,
+# которая принимает промпт в stdin и печатает base64 PNG в stdout. Никакой
+# другой команды этим ключом выполнить нельзя (restrict в authorized_keys).
 _BRIDGE_OPTS = [
     "-o", "StrictHostKeyChecking=accept-new",
     "-o", "ConnectTimeout=10",
@@ -58,7 +58,7 @@ _BRIDGE_OPTS = [
 
 
 async def _generate_agy_bridge(full_prompt: str) -> str:
-    """Nano banana через Antigravity CLI (agy) на Монстре. Генерация ~25-40 сек."""
+    """Nano banana через Antigravity CLI (agy). Генерация ~25-40 сек."""
     if not (config.AGY_SSH_HOST and config.AGY_SSH_KEY):
         raise RuntimeError("AGY_SSH не настроен")
     argv = (

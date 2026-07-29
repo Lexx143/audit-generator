@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# ssh-клиент — для моста генерации картинок (agy на Монстре)
+# ssh-клиент — для моста генерации картинок (agy на отдельном хосте)
 RUN apt-get update && apt-get install -y --no-install-recommends openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
