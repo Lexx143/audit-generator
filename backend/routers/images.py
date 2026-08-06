@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 import imaging
+import llm
 import rag
 from schemas import Auditor, GenerateImageRequest, ImageSuggestionsRequest
 
@@ -10,8 +11,17 @@ router = APIRouter()
 @router.post("/api/generate_image")
 async def generate_image(req: GenerateImageRequest):
     try:
-        image_b64 = await imaging.generate_image_b64(req.prompt, req.style or "3d_icon")
-        return {"image_b64": image_b64}
+        scene = req.prompt
+        # если пришла суть кейса — строим подробную сцену через LLM
+        if req.vulnerability:
+            try:
+                scene = await llm.build_image_prompt(
+                    req.title or "", req.vulnerability, req.risk or "")
+            except Exception as e:
+                print(f"build_image_prompt failed, fallback to short prompt: {e}")
+                scene = req.prompt
+        image_b64 = await imaging.generate_image_b64(scene, req.style or "3d_icon")
+        return {"image_b64": image_b64, "prompt": scene}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

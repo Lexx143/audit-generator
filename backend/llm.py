@@ -44,6 +44,31 @@ def _build_rag_context(vulnerabilities: str, conclusions: str) -> str:
     return "\n".join(parts)
 
 
+async def build_image_prompt(title: str, vulnerability: str, risk: str) -> str:
+    """Строит подробный английский промпт визуальной сцены под конкретный кейс —
+    метафора именно этого риска, конкретные объекты. Стиль/фон добавит imaging."""
+    system = ("You are an art director for corporate IT-audit report illustrations. "
+              "You write vivid, concrete English image-generation prompts describing a scene.")
+    user = f"""Опиши визуальную сцену-иллюстрацию для кейса ИТ-аудита. Верни ТОЛЬКО английский промпт одним абзацем, без пояснений и без указания стиля рисовки.
+
+Кейс: {title}
+Уязвимость: {vulnerability}
+Риск: {risk}
+
+Требования:
+- Это ПЛОСКАЯ СХЕМАТИЧНАЯ инфографика (flat vector), НЕ фотореализм. Описывай ТОЛЬКО объекты и их взаимное расположение/композицию. НЕ описывай освещение, тени, атмосферу, текстуры, пыль, фон, помещение.
+- Конкретная сцена, метафорически показывающая СУТЬ РИСКА кейса. Простые узнаваемые иконки-объекты: серверы, камеры, ключи, кабели, роутеры, облако, документы и т.п.
+- Визуально передай проблему: единственная точка отказа, отсутствие резерва (пустой пунктирный силуэт/слот), угрозы вокруг (пламя, замок-шифровальщик, рука-кража), несовместимость (детали пазла), хаос кабелей — что подходит кейсу.
+- Никакого текста, букв, цифр, логотипов.
+- Ровно 2–3 коротких предложения. Только суть, без литературных деталей.
+"""
+    msg = await client.messages.create(
+        model=config.TEXT_MODEL, max_tokens=250, system=system,
+        messages=[{"role": "user", "content": user}],
+    )
+    return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
+
+
 async def _parse_structured(prompt: str, system: str, response_format):
     # Anthropic structured output: messages.parse сам ставит output_config.format
     # из output_format и валидирует ответ в Pydantic-модель (parsed_output).

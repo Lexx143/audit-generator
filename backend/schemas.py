@@ -46,6 +46,10 @@ class ReviseCaseRequest(BaseModel):
 class GenerateImageRequest(BaseModel):
     prompt: str
     style: Optional[str] = "3d_icon"
+    # если переданы — бэкенд строит подробный промпт из сути кейса
+    title: Optional[str] = None
+    vulnerability: Optional[str] = None
+    risk: Optional[str] = None
 
 
 class Auditor(BaseModel):

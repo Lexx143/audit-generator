@@ -348,11 +348,14 @@ function App() {
 
   const generateImageFor = async (index, prompt) => {
     updateCase(index, { imageGenerating: true });
+    const c = auditData.cases[index];
     try {
       const res = await fetch(`${API}/api/generate_image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, style: imageStyle })
+        // передаём суть кейса — бэкенд строит подробный промпт под этот риск
+        body: JSON.stringify({ prompt, style: imageStyle,
+          title: c.title, vulnerability: c.vulnerability, risk: c.risk })
       });
       if (res.ok) {
         const data = await res.json();
@@ -376,13 +379,9 @@ function App() {
   };
 
   const handleGenerateAllImages = async () => {
-    const targets = auditData.cases
-      .map((c, i) => ({ c, i }))
-      .filter(({ c }) => !c.image_b64);
-    if (!targets.length) {
-      addToast("Все картинки уже сгенерированы");
-      return;
-    }
+    // генерируем заново ВСЕ кейсы (в т.ч. с уже подтянутыми картинками)
+    const targets = auditData.cases.map((c, i) => ({ c, i }));
+    if (!targets.length) return;
     setBatchProgress({ done: 0, total: targets.length });
     let done = 0;
     await Promise.all(targets.map(({ c, i }) =>
@@ -858,7 +857,7 @@ function App() {
                 </select>
               </span>
               <button className="btn btn-action" onClick={handleGenerateAllImages} disabled={loading || revising || !!batchProgress}>
-                {batchProgress ? `Генерация ${batchProgress.done}/${batchProgress.total}...` : "Сгенерировать все картинки"}
+                {batchProgress ? `Генерация ${batchProgress.done}/${batchProgress.total}...` : "Сгенерировать / обновить все картинки"}
               </button>
             </div>
             {batchProgress && (
