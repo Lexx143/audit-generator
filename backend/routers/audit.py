@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 import llm
 import rag
+import prototypes
 from schemas import ParseRequest, ReviseRequest, ReviseCaseRequest
 
 router = APIRouter()
@@ -32,6 +33,8 @@ async def parse_audit(req: ParseRequest):
     try:
         data_obj = await llm.generate_structure(req)
         return json.loads(data_obj.model_dump_json())
+    except prototypes.PrototypeError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

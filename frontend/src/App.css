@@ -319,3 +319,23 @@
     flex-wrap: wrap;
   }
 }
+/* Прототип аудита и независимый выбор новых иллюстраций */
+.prototype-panel {
+  padding: 1.25rem;
+  margin: 0 0 1.5rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 14px;
+}
+.prototype-panel p, .source-note { color: var(--text-muted); line-height: 1.5; margin: .65rem 0 1rem; }
+.prototype-panel small { display: block; color: var(--text-muted); margin-top: .6rem; }
+.prototype-upload { display: inline-flex; align-items: center; cursor: pointer; }
+.prototype-upload input { width: 1px; height: 1px; opacity: 0; position: absolute; }
+.prototype-upload:focus-within { outline: 2px solid var(--primary); outline-offset: 3px; }
+.source-files { list-style: none; padding: 0; margin: .8rem 0 0; }
+.source-files li { display: flex; gap: .8rem; align-items: flex-start; justify-content: space-between; padding: .8rem 0; border-top: 1px solid var(--border-glass); }
+.source-files strong { overflow-wrap: anywhere; }
+.source-files p { font-size: .85rem; margin: .3rem 0; }
+.source-files .source-warning { color: var(--primary); }
+.illustration-switch { display: flex; align-items: flex-start; gap: .75rem; padding: 1rem 0; margin: .5rem 0 1rem; cursor: pointer; }
+.illustration-switch input { width: 18px; height: 18px; flex: 0 0 18px; margin-top: .2rem; accent-color: var(--primary); }
+.illustration-switch small { display: block; font-size: .85rem; font-weight: normal; line-height: 1.45; color: var(--text-muted); margin-top: .4rem; }

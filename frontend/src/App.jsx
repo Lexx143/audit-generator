@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import TextareaAutosize from 'react-textarea-autosize';
 import './App.css'
+import { visibleCaseImage } from './imagePolicy';
 // In development, use the current host so the app also works when opened
 // from a phone on the same network. In production, use empty string to use
 // relative path (proxied by Nginx).
-const API = import.meta.env.DEV ? `http://${window.location.hostname}:8000` : '';
+const API = import.meta.env.VITE_API_BASE ?? (import.meta.env.DEV ? `http://${window.location.hostname}:8000` : '');
 const DRAFT_KEY = 'audit-generator-draft';
 
 const IMAGE_STYLES = [
@@ -38,6 +39,10 @@ function App() {
     conclusions: ''
   });
   const [auditData, setAuditData] = useState(draft?.auditData || null);
+  const [sourceDocuments, setSourceDocuments] = useState(draft?.sourceDocuments || []);
+  const [uploading, setUploading] = useState(false);
+  const [generateIllustrations, setGenerateIllustrations] = useState(draft?.generateIllustrations ?? true);
+  const illustrationsRef = useRef(generateIllustrations);
   const [revisionText, setRevisionText] = useState("");
   const [revising, setRevising] = useState(false);
   const [hints, setHints] = useState([]);
@@ -66,6 +71,74 @@ function App() {
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4500);
   }, []);
+
+  const changeIllustrations = (enabled) => {
+    illustrationsRef.current = enabled;
+    setGenerateIllustrations(enabled);
+  };
+
+  const handleUploadPrototypes = async (files) => {
+    if (!files.length) return;
+    if (sourceDocuments.length + files.length > 5) {
+      addToast('Можно прикрепить до 5 файлов', 'error');
+      return;
+    }
+    if (files.some(file => !file.name.toLowerCase().endsWith('.docx') || file.size > 20 * 1024 * 1024)) {
+      addToast('Выберите DOCX размером до 20 МБ каждый', 'error');
+      return;
+    }
+    setUploading(true);
+    try {
+      const body = new FormData();
+      files.forEach(file => body.append('files', file));
+      const response = await fetch(`${API}/api/prototypes`, { method: 'POST', body });
+      const result = await response.json();
+      if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Не удалось загрузить файлы');
+      setSourceDocuments(previous => {
+        const seen = new Set(previous.map(doc => doc.sha256));
+        return [...previous, ...result.documents.filter(doc => {
+          if (seen.has(doc.sha256)) return false;
+          seen.add(doc.sha256);
+          return true;
+        })];
+      });
+      if (!sourceDocuments.length) {
+        changeIllustrations(false);
+        setAuditType('full');
+      }
+      addToast('Прототип загружен. Исходные материалы будут сохранены в отчете.', 'success');
+    } catch (error) {
+      addToast(error.message, 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const sourceSummary = (documents, removable = false) => (
+    <ul className="source-files">
+      {documents.map(doc => <li key={doc.id}>
+        <div>
+          <strong>{doc.filename}</strong>
+          <p>Абзацы: {doc.paragraphs} · Таблицы: {doc.tables} · Изображения: {doc.images}</p>
+          {doc.warnings?.map((warning, i) => <p className="source-warning" key={i}>{warning}</p>)}
+        </div>
+        {removable && <button className="btn-small" disabled={uploading || loading}
+          aria-label={`Убрать ${doc.filename}`} onClick={() => setSourceDocuments(previous => previous.filter(item => item.id !== doc.id))}>Убрать</button>}
+      </li>)}
+    </ul>
+  );
+
+  const illustrationSwitch = () => (
+    <label className="illustration-switch">
+      <input type="checkbox" checked={generateIllustrations}
+        disabled={loading || revising || !!batchProgress || auditData?.cases.some(c => c.imageGenerating)}
+        onChange={event => changeIllustrations(event.target.checked)} />
+      <span><strong>Генерировать новые иллюстрации</strong>
+        <small>Схемы, фото и карты из исходных файлов сохраняются при любом положении переключателя.</small>
+        {!generateIllustrations && <small>Картинки ИИ и автоподбор из библиотеки отключены. Загруженные вручную изображения остаются.</small>}
+      </span>
+    </label>
+  );
 
   useEffect(() => {
     fetch(`${API}/api/hints`)
@@ -202,6 +275,7 @@ function App() {
 
   // Подбор картинок из библиотеки для похожего кейса
   const loadSuggestionsFor = async (caseObj, index, applyFirst) => {
+    if (!illustrationsRef.current) return;
     try {
       const res = await fetch(`${API}/api/image_suggestions`, {
         method: 'POST',
@@ -211,6 +285,7 @@ function App() {
       if (!res.ok) return;
       const data = await res.json();
       const imgs = (data.images || []).map(x => x.b64);
+      if (!illustrationsRef.current) return;
       if (!imgs.length) return;
       setAuditData(prev => {
         if (!prev || !prev.cases[index]) return prev;
@@ -258,9 +333,9 @@ function App() {
     const t = setTimeout(() => {
       const cleanAudit = auditData ? {
         ...auditData,
-        cases: auditData.cases.map(({ imageGenerating, textRevising, suggestions, suggIdx, ...c }) => c)
+        cases: auditData.cases.map(({ imageGenerating: _ig, textRevising: _tr, suggestions: _s, suggIdx: _si, ...c }) => c)
       } : null;
-      const payload = { step, auditType, formData, auditData: cleanAudit, imageStyle, auditorId };
+      const payload = { step, auditType, formData, auditData: cleanAudit, imageStyle, auditorId, sourceDocuments, generateIllustrations };
       try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
       } catch {
@@ -268,14 +343,14 @@ function App() {
         try {
           const light = cleanAudit ? {
             ...cleanAudit,
-            cases: cleanAudit.cases.map(({ image_b64, ...c }) => c)
+            cases: cleanAudit.cases.map(({ image_b64: _image, ...c }) => c)
           } : null;
           localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...payload, auditData: light }));
         } catch { /* совсем не влезло — пропускаем */ }
       }
     }, 500);
     return () => clearTimeout(t);
-  }, [step, auditType, formData, auditData, imageStyle, auditorId]);
+  }, [step, auditType, formData, auditData, imageStyle, auditorId, sourceDocuments, generateIllustrations]);
 
   const resetAll = () => {
     if (!confirm("Начать заново? Текущий черновик будет удален.")) return;
@@ -283,6 +358,7 @@ function App() {
     setStep(1);
     setFormData({ general_data: '', vulnerabilities: '', conclusions: '' });
     setAuditData(null);
+    setSourceDocuments([]);
     setRevisionText("");
     setBatchProgress(null);
     setReviseCaseOpen({});
@@ -297,12 +373,18 @@ function App() {
   };
 
   const handleParse = async () => {
+    if (uploading) return;
+    if (!sourceDocuments.length && !Object.values(formData).some(value => value.trim())) {
+      addToast('Загрузите прототип или заполните данные аудита', 'error');
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch(`${API}/api/parse`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, audit_type: auditType })
+        body: JSON.stringify({ ...formData, audit_type: auditType,
+          source_ids: sourceDocuments.map(doc => doc.id), generate_illustrations: generateIllustrations })
       });
       if (!res.ok) {
         addToast("Ошибка от сервера: " + (await res.text()).slice(0, 200), 'error');
@@ -311,11 +393,12 @@ function App() {
       }
       const data = await res.json();
       data.cases = data.cases.map(c => ({ ...c, category: stripCategoryNumber(c.category) }));
+      data.source_documents = sourceDocuments;
       setAuditData(data);
       setStep(2);
       addToast("Структура аудита готова", 'success');
       // Подтягиваем похожие картинки из библиотеки для каждого кейса
-      data.cases.forEach((c, i) => loadSuggestionsFor(c, i, true));
+      if (illustrationsRef.current) data.cases.forEach((c, i) => loadSuggestionsFor(c, i, true));
     } catch (err) {
       addToast("Ошибка при парсинге: " + err, 'error');
     }
@@ -347,6 +430,7 @@ function App() {
   };
 
   const generateImageFor = async (index, prompt) => {
+    if (!illustrationsRef.current) return false;
     updateCase(index, { imageGenerating: true });
     const c = auditData.cases[index];
     try {
@@ -355,7 +439,8 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         // передаём суть кейса — бэкенд строит подробный промпт под этот риск
         body: JSON.stringify({ prompt, style: imageStyle,
-          title: c.title, vulnerability: c.vulnerability, risk: c.risk })
+          title: c.title, vulnerability: c.vulnerability, risk: c.risk,
+          generate_illustrations: illustrationsRef.current })
       });
       if (res.ok) {
         const data = await res.json();
@@ -379,6 +464,7 @@ function App() {
   };
 
   const handleGenerateAllImages = async () => {
+    if (!illustrationsRef.current) return;
     // генерируем заново ВСЕ кейсы (в т.ч. с уже подтянутыми картинками)
     const targets = auditData.cases.map((c, i) => ({ c, i }));
     if (!targets.length) return;
@@ -450,6 +536,7 @@ function App() {
       }
       const data = await res.json();
       data.cases = data.cases.map(c => ({ ...c, category: stripCategoryNumber(c.category) }));
+      data.source_documents = auditData.source_documents || [];
       setAuditData(data);
       setRevisionText("");
       addToast("Правки применены", 'success');
@@ -473,10 +560,11 @@ function App() {
         body: JSON.stringify({
           data: {
             ...auditData,
-            cases: auditData.cases.map(({ suggestions, suggIdx, imageGenerating, textRevising, image_source, categoryCustom, ...c }) => c)
+            cases: auditData.cases.map(({ suggestions: _s, suggIdx: _si, imageGenerating: _ig, textRevising: _tr, categoryCustom: _cc, ...c }) => c)
           },
           audit_type: auditType,
           save_to_memory: saveToMemory,
+          generate_illustrations: generateIllustrations,
           auditor
         })
       });
@@ -525,6 +613,20 @@ function App() {
               </select>
             </div>
           </div>
+
+          <div className="prototype-panel">
+            <h3>Прототип аудита</h3>
+            <p>Загрузите один или несколько DOCX. Инструмент подготовит кейсы и выводы в корпоративном шаблоне, а все тексты, таблицы и изображения перенесёт в приложение.</p>
+            <label className="btn-small prototype-upload">
+              {uploading ? 'Чтение файлов…' : 'Загрузить прототип DOCX'}
+              <input type="file" accept=".docx" multiple disabled={uploading || loading || sourceDocuments.length >= 5}
+                onChange={event => { handleUploadPrototypes(Array.from(event.target.files || [])); event.target.value = ''; }} />
+            </label>
+            <small>До 5 файлов, до 20 МБ каждый. Одинаковые файлы повторно не добавляются.</small>
+            {sourceSummary(sourceDocuments, true)}
+          </div>
+          {illustrationSwitch()}
+          {!!sourceDocuments.length && <p className="source-note">Поля ниже необязательны: укажите дополнения к прототипу, если они есть.</p>}
 
           <div className="input-group">
             <label>Общие данные о клиенте (Название, адрес, сфера, размер штата)</label>
@@ -631,10 +733,10 @@ function App() {
           </div>
 
           <div className="flex-between">
-            <button className="btn" onClick={handleParse} disabled={loading}>
-              {loading ? <div className="loader"></div> : "Сгенерировать структуру"}
+            <button className="btn" onClick={handleParse} disabled={loading || uploading}>
+              {loading ? <div className="loader"></div> : sourceDocuments.length ? "Собрать аудит по прототипу" : "Сгенерировать структуру"}
             </button>
-            {(auditData || formData.general_data || formData.vulnerabilities) && (
+            {(auditData || sourceDocuments.length > 0 || formData.general_data || formData.vulnerabilities) && (
               <button className="btn-small" onClick={resetAll}>Очистить черновик</button>
             )}
           </div>
@@ -664,6 +766,13 @@ function App() {
               minRows={4}
             />
           </div>
+
+          {auditData.source_documents?.length > 0 && <div className="prototype-panel">
+            <h3>Исходные материалы в отчёте</h3>
+            <p>Все перечисленные материалы будут добавлены после выводов. Правки кейсов и переключатель иллюстраций не удаляют исходники.</p>
+            {sourceSummary(auditData.source_documents)}
+          </div>}
+          {illustrationSwitch()}
 
           <div className="flex-between" style={{marginTop: '1rem'}}>
             <h3>Кейсы ({auditData.cases.length})</h3>
@@ -757,7 +866,7 @@ function App() {
                   </div>
                 )}
 
-                <div>
+                {generateIllustrations && <div>
                   <label style={{fontSize: '0.85rem'}}>Промпт картинки (англ.):</label>
                   <TextareaAutosize
                     className="image-prompt-input"
@@ -765,27 +874,27 @@ function App() {
                     onChange={e => handleCaseChange(i, 'image_prompt', e.target.value)}
                     minRows={1}
                   />
-                </div>
+                </div>}
 
                 <div className="case-image-wrap">
                   {c.imageGenerating ? (
                     <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
                       <div className="loader"></div>
                     </div>
-                  ) : c.image_b64 ? (
-                    <img src={c.image_b64} alt="Case visual" />
+                  ) : visibleCaseImage(c, generateIllustrations) ? (
+                    <img src={visibleCaseImage(c, generateIllustrations)} alt="Изображение кейса" />
                   ) : (
                     <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem'}}>
-                      Нет картинки
+                      {generateIllustrations ? 'Нет картинки' : 'Без новой иллюстрации'}
                     </div>
                   )}
 
                   {!c.imageGenerating && (
                     <div className="case-image-overlay">
                       <div className="image-actions">
-                        <button className="btn" style={{padding: '0.5rem 1rem', fontSize: '0.9rem'}} onClick={() => handleRegenerateImage(i)}>
+                        {generateIllustrations && <button className="btn" style={{padding: '0.5rem 1rem', fontSize: '0.9rem'}} onClick={() => handleRegenerateImage(i)}>
                           {c.image_b64 ? "🎨 Сгенерировать" : "Сгенерировать"}
-                        </button>
+                        </button>}
                         <label className="btn btn-upload" style={{padding: '0.5rem 1rem', fontSize: '0.9rem'}}>
                           📁 Загрузить
                           <input type="file" accept="image/*" hidden onChange={e => {
@@ -797,7 +906,7 @@ function App() {
                     </div>
                   )}
 
-                  {!c.imageGenerating && c.suggestions?.length > 1 && c.image_source === 'library' && (
+                  {generateIllustrations && !c.imageGenerating && c.suggestions?.length > 1 && c.image_source === 'library' && (
                     <>
                       <button className="suggestion-arrow left" onClick={() => cycleSuggestion(i, -1)}>‹</button>
                       <button className="suggestion-arrow right" onClick={() => cycleSuggestion(i, 1)}>›</button>
@@ -849,7 +958,7 @@ function App() {
           </div>
 
           <div style={{marginTop: '3rem', textAlign: 'center'}}>
-            <div className="action-bar" style={{marginBottom: '1rem'}}>
+            {generateIllustrations && <div className="action-bar" style={{marginBottom: '1rem'}}>
               <span className="style-select-wrap">
                 <label style={{fontSize: '0.9rem'}}>Стиль картинок:</label>
                 <select value={imageStyle} onChange={e => setImageStyle(e.target.value)}>
@@ -859,7 +968,7 @@ function App() {
               <button className="btn btn-action" onClick={handleGenerateAllImages} disabled={loading || revising || !!batchProgress}>
                 {batchProgress ? `Генерация ${batchProgress.done}/${batchProgress.total}...` : "Сгенерировать / обновить все картинки"}
               </button>
-            </div>
+            </div>}
             {batchProgress && (
               <div className="progress-wrap">
                 <div className="progress-bar">

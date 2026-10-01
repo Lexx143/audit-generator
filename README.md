@@ -15,6 +15,16 @@
 
 ## Возможности
 
+- **Аудит по прототипу DOCX**: до 5 исходных файлов (до 20 МБ каждый).
+  ИИ формирует кейсы и выводы; отдельное техническое приложение сохраняет
+  исходные тексты, чек-листы, таблицы, схемы и подписи без сокращения моделью.
+  Длинные таблицы продолжаются на следующих слайдах, изображения сохраняются
+  в исходном качестве и пропорциях. Встроенные Office-объекты/SmartArt нужно
+  предварительно сохранить в Word как PNG/JPEG: неподдерживаемые объекты
+  отклоняются с объяснением, а не молча пропускаются.
+- **Переключатель новых иллюстраций**: при загрузке прототипа по умолчанию
+  выключен. Отключает генерацию, автоподбор из библиотеки и включение таких
+  картинок в экспорт; исходные схемы и вручную загруженные фотографии остаются.
 - **Генерация структуры аудита** из сырого текста: кейс на каждую указанную
   уязвимость (без ограничения количества), приоритеты, категории, обзор, выводы
 - **RAG few-shot**: промпт обогащается похожими кейсами из прошлых аудитов
@@ -127,6 +137,16 @@ reverse-proxy (Caddy/Nginx) с TLS и basic auth.
 
 ## Данные и приватность
 
+Загруженные прототипы хранятся отдельно в `backend/db/prototypes/` (в Docker
+это существующий volume `db`). Черновик хранит только ссылки и сводку файлов,
+поэтому схемы не пропадают из-за ограничения localStorage. Правки ИИ сохраняют
+ссылки на оригиналы. Исходные файлы и их изображения не попадают в общую RAG-
+библиотеку. Срок хранения не ограничен автоматически: удаление каталога
+прототипа делает соответствующий старый черновик недоступным для экспорта;
+потребуется повторная загрузка. Общий размер одной загрузки — до 45 МБ,
+контекст исходников — до 180 000 символов; превышение возвращает понятную ошибку,
+а не урезанный аудит. Сейчас импорт принимает `.docx`.
+
 В репозитории **нет**: фирменного шаблона, базы знаний, реальных кейсов
 аудитов, ключей и адресов инфраструктуры — все это живет только на
 рабочей машине и сервере (`backend/db/`, `backend/data/`,
@@ -150,6 +170,13 @@ A key feature is the **self-learning knowledge base**: every approved report pop
 
 ## Features
 
+- **DOCX prototypes**: upload up to five files, 20 MB each. AI produces the
+  findings while a separate corporate appendix preserves source text, checklists,
+  editable tables, captions, and original images. Unsupported embedded Office
+  objects are rejected explicitly; convert them to PNG/JPEG in Word first.
+- **Optional new illustrations**: off by default for a prototype. Disabling it
+  prevents image generation, automatic library selection, and export of generated
+  or library illustrations. Original diagrams and manually uploaded photos remain.
 - **Audit structure generation** from raw text: a case for each specified vulnerability (no limit on quantity), priorities, categories, overview, conclusions.
 - **RAG few-shot**: the prompt is enriched with similar cases from past audits (ChromaDB + local sentence-transformers embeddings).
 - **Case illustrations**: generation (nano banana via Antigravity CLI, three styles — 3D icon, flat vector, isometric), upload custom pictures/photos, auto-selection of previously generated images from the semantic library (with swipe).

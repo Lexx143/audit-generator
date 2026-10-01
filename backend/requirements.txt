@@ -5,6 +5,8 @@ google-genai
 chromadb
 sentence-transformers
 python-pptx
+python-docx==1.2.0
+python-multipart==0.0.32
 python-dotenv
 pydantic
 pillow

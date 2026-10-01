@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Literal, Optional
 
 
 class Case(BaseModel):
@@ -14,13 +14,19 @@ class Case(BaseModel):
     # Можно ли сохранить картинку в библиотеку для будущих аудитов
     # (сгенерированные и загруженные иллюстрации — да, фотографии объектов — нет)
     image_reusable: Optional[bool] = None
+    image_source: Optional[Literal["generated", "library", "uploaded"]] = None
 
 
-class AuditData(BaseModel):
+class AuditStructure(BaseModel):
     client_name: str
     review: str
     cases: list[Case]
     conclusions: list[str]
+
+
+class AuditData(AuditStructure):
+    # Ссылки на оригиналы хранит приложение, а не генерирует модель.
+    source_ids: list[str] = Field(default_factory=list, max_length=5)
 
 
 class ParseRequest(BaseModel):
@@ -28,6 +34,8 @@ class ParseRequest(BaseModel):
     vulnerabilities: str
     conclusions: str
     audit_type: str
+    source_ids: list[str] = Field(default_factory=list, max_length=5)
+    generate_illustrations: bool = True
 
 
 class ReviseRequest(BaseModel):
@@ -50,6 +58,7 @@ class GenerateImageRequest(BaseModel):
     title: Optional[str] = None
     vulnerability: Optional[str] = None
     risk: Optional[str] = None
+    generate_illustrations: bool = True
 
 
 class Auditor(BaseModel):
@@ -63,6 +72,7 @@ class GeneratePptxRequest(BaseModel):
     audit_type: Optional[str] = "full"
     save_to_memory: bool = False
     auditor: Optional[Auditor] = None
+    generate_illustrations: bool = True
 
 
 class ImageSuggestionsRequest(BaseModel):

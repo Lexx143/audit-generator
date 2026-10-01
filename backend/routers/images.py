@@ -10,6 +10,8 @@ router = APIRouter()
 
 @router.post("/api/generate_image")
 async def generate_image(req: GenerateImageRequest):
+    if not req.generate_illustrations:
+        raise HTTPException(status_code=409, detail="Генерация иллюстраций отключена")
     try:
         scene = req.prompt
         # если пришла суть кейса — строим подробную сцену через LLM

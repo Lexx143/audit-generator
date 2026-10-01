@@ -5,15 +5,17 @@ import io
 import math
 import os
 import re
-import time
 from datetime import date
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.util import Emu
+from pptx.opc.packuri import PackURI
 
 from schemas import AuditData
+import prototypes
+from source_appendix import append_sources
 
 TEMPLATE_PATH = os.path.join("assets", "template.pptx")
 
@@ -160,7 +162,12 @@ def _delete_shape(shape):
 
 def clone_slide(prs, source):
     """Клонирует слайд (фигуры + картинки) в конец презентации."""
+    used_names = {str(slide.part.partname) for slide in prs.slides}
     dest = prs.slides.add_slide(source.slide_layout)
+    # python-pptx uses slide count, which collides after template slides were deleted.
+    if str(dest.part.partname) in used_names:
+        number = max(int(re.search(r"slide(\d+)\.xml$", name).group(1)) for name in used_names) + 1
+        dest.part.partname = PackURI(f"/ppt/slides/slide{number}.xml")
     # add_slide подтягивает плейсхолдеры макета — убираем, фигуры скопируем сами
     for shp in list(dest.shapes):
         _delete_shape(shp)
@@ -398,6 +405,7 @@ def layout_case_image(slide, img_path):
 
 
 def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.BytesIO:
+    documents = [prototypes.load(source_id) for source_id in dict.fromkeys(data.source_ids)]
     prs = Presentation(TEMPLATE_PATH)
     include_recommendations = audit_type == "full"
 
@@ -405,10 +413,7 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
     for i, case in enumerate(data.cases):
         if case.image_b64 and case.image_b64.startswith("data:image"):
             img_data = base64.b64decode(case.image_b64.split(",")[1])
-            img_path = f"/tmp/case_img_{i}_{int(time.time())}.jpg"
-            with open(img_path, "wb") as f:
-                f.write(img_data)
-            temp_images.append((i, img_path))
+            temp_images.append((i, io.BytesIO(img_data)))
 
     try:
         remove_personal_marks(prs, auditor=auditor)
@@ -418,6 +423,8 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
             if hasattr(s, 'text') and s.text:
                 if 'Клиент' in s.text or 'Курылыс' in s.text:
                     perfect_replace(s, f"Клиент: {data.client_name}")
+                elif include_recommendations and 'Экспресс ИТ-аудита' in s.text:
+                    perfect_replace(s, s.text.replace('Экспресс ИТ-аудита', 'ИТ-аудита'))
 
         for s in prs.slides[2].shapes:
             if hasattr(s, 'text') and s.text and 'аудита' in s.text:
@@ -434,7 +441,7 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
             if cat not in ordered_cats:
                 ordered_cats.append(cat)
         numbered = {name: f"{ROMAN[min(i, len(ROMAN)-1)]}. {name}" for i, name in enumerate(ordered_cats)}
-        table_cats = [numbered[n] for n in ordered_cats]
+        table_cats = [numbered[n] for n in ordered_cats] or ["Нет подтверждённых замечаний"]
         cat_counts = {c: {"ПЕРВЫЙ ПРИОРИТЕТ": 0, "ВТОРОЙ ПРИОРИТЕТ": 0, "ТРЕТИЙ ПРИОРИТЕТ": 0} for c in table_cats}
 
         for case in data.cases:
@@ -483,8 +490,11 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
 
         conc_text = "\n".join([f"• {c}" for c in data.conclusions])
         for s in prs.slides[16].shapes:
-            if hasattr(s, 'text') and s.text and 'Вариант 1' in s.text:
-                perfect_replace(s, conc_text)
+            if hasattr(s, 'text') and s.text:
+                if 'Вариант 1' in s.text:
+                    perfect_replace(s, conc_text)
+                elif 'Предложение:' in s.text:
+                    perfect_replace(s, 'Выводы и рекомендации' if include_recommendations else 'Выводы')
 
         # --- Секции и кейсы: клонируем шаблонные слайды под любое число кейсов ---
         divider_template = prs.slides[5]
@@ -543,11 +553,12 @@ def build_pptx(data: AuditData, audit_type: str = "full", auditor=None) -> io.By
             sld_lst.remove(el)
             sld_lst.append(el)
 
+        append_sources(prs, documents, clone_slide)
+
         output_io = io.BytesIO()
         prs.save(output_io)
         output_io.seek(0)
         return output_io
     finally:
-        for _, img_path in temp_images:
-            if os.path.exists(img_path):
-                os.remove(img_path)
+        for _, image in temp_images:
+            image.close()
