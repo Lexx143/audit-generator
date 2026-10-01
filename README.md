@@ -1,5 +1,7 @@
 # Audit Generator AI
 
+[![CI](https://github.com/Lexx143/audit-generator/actions/workflows/ci.yml/badge.svg)](https://github.com/Lexx143/audit-generator/actions/workflows/ci.yml)
+
 [Read in English](#english-version)
 
 Веб-приложение для генерации отчетов по ИТ-аудитам в формате PowerPoint.
