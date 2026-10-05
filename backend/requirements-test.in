@@ -1,0 +1,12 @@
+# Offline unit/API tests: embedding models and providers are mocked by conftest.
+anthropic
+fastapi
+httpx
+pillow
+pydantic
+pytest
+pytest-socket
+python-docx==1.2.0
+python-dotenv
+python-multipart==0.0.32
+python-pptx
