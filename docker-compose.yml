@@ -6,8 +6,18 @@ services:
       context: ./backend
     container_name: audit-backend
     restart: always
+    mem_limit: 4g
+    cpus: 2.0
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - ./backend/db:/app/db
+      # Public embedding weights survive container recreation; no API tokens here.
+      - model-cache:/root/.cache/huggingface/hub
       - ./backend/.env:/app/.env
       # ключ моста генерации картинок (agy), только чтение
       - ./backend/secrets:/app/secrets:ro
@@ -21,6 +31,14 @@ services:
       dockerfile: frontend/Dockerfile
     container_name: audit-frontend
     restart: always
+    mem_limit: 128m
+    cpus: 1.0
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       # Только docker-мост: снаружи доступ идет через Caddy (audit.ktgas.kz, basic auth).
       # Прямой http://IP:3000 из интернета закрыт.
@@ -33,3 +51,6 @@ services:
 networks:
   audit-net:
     driver: bridge
+
+volumes:
+  model-cache:
